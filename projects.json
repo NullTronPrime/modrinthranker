@@ -1,0 +1,170 @@
+[
+ {
+  "title": "Fabric API",
+  "slug": "fabric-api",
+  "type": "mod",
+  "downloads": 260516352,
+  "followers": 36127
+ },
+ {
+  "title": "Sodium",
+  "slug": "sodium",
+  "type": "mod",
+  "downloads": 230398374,
+  "followers": 40976
+ },
+ {
+  "title": "Iris Shaders",
+  "slug": "iris",
+  "type": "mod",
+  "downloads": 178959033,
+  "followers": 29414
+ },
+ {
+  "title": "Cloth Config API",
+  "slug": "cloth-config",
+  "type": "mod",
+  "downloads": 170260531,
+  "followers": 16615
+ },
+ {
+  "title": "Entity Culling",
+  "slug": "entityculling",
+  "type": "mod",
+  "downloads": 169557744,
+  "followers": 17440
+ },
+ {
+  "title": "FerriteCore",
+  "slug": "ferrite-core",
+  "type": "mod",
+  "downloads": 152810762,
+  "followers": 16288
+ },
+ {
+  "title": "Mod Menu",
+  "slug": "modmenu",
+  "type": "mod",
+  "downloads": 146224221,
+  "followers": 27139
+ },
+ {
+  "title": "Lithium",
+  "slug": "lithium",
+  "type": "mod",
+  "downloads": 129531002,
+  "followers": 23516
+ },
+ {
+  "title": "ImmediatelyFast",
+  "slug": "immediatelyfast",
+  "type": "mod",
+  "downloads": 125235305,
+  "followers": 11435
+ },
+ {
+  "title": "YetAnotherConfigLib (YACL)",
+  "slug": "yacl",
+  "type": "mod",
+  "downloads": 124108882,
+  "followers": 9580
+ },
+ {
+  "title": "Fabric Language Kotlin",
+  "slug": "fabric-language-kotlin",
+  "type": "mod",
+  "downloads": 120216370,
+  "followers": 11065
+ },
+ {
+  "title": "Xaero's Minimap",
+  "slug": "xaeros-minimap",
+  "type": "mod",
+  "downloads": 111501802,
+  "followers": 18321
+ },
+ {
+  "title": "[ETF] Entity Texture Features",
+  "slug": "entitytexturefeatures",
+  "type": "mod",
+  "downloads": 102173932,
+  "followers": 10448
+ },
+ {
+  "title": "Architectury API",
+  "slug": "architectury-api",
+  "type": "mod",
+  "downloads": 100682385,
+  "followers": 7665
+ },
+ {
+  "title": "Xaero's World Map",
+  "slug": "xaeros-world-map",
+  "type": "mod",
+  "downloads": 97598182,
+  "followers": 13855
+ },
+ {
+  "title": "Sodium Extra",
+  "slug": "sodium-extra",
+  "type": "mod",
+  "downloads": 97597300,
+  "followers": 13493
+ },
+ {
+  "title": "[EMF] Entity Model Features",
+  "slug": "entity-model-features",
+  "type": "mod",
+  "downloads": 96949287,
+  "followers": 9993
+ },
+ {
+  "title": "AppleSkin",
+  "slug": "appleskin",
+  "type": "mod",
+  "downloads": 90547241,
+  "followers": 17843
+ },
+ {
+  "title": "Not Enough Animations",
+  "slug": "not-enough-animations",
+  "type": "mod",
+  "downloads": 87339366,
+  "followers": 9037
+ },
+ {
+  "title": "VeinMiner",
+  "slug": "veinminer",
+  "type": "mod",
+  "downloads": 85944920,
+  "followers": 6347
+ },
+ {
+  "title": "Reese's Sodium Options",
+  "slug": "reeses-sodium-options",
+  "type": "mod",
+  "downloads": 81599272,
+  "followers": 8878
+ },
+ {
+  "title": "ModernFix",
+  "slug": "modernfix",
+  "type": "mod",
+  "downloads": 78282988,
+  "followers": 7072
+ },
+ {
+  "title": "Just Enough Items (JEI)",
+  "slug": "jei",
+  "type": "mod",
+  "downloads": 78128549,
+  "followers": 11169
+ },
+ {
+  "title": "3D Skin Layers",
+  "slug": "3dskinlayers",
+  "type": "mod",
+  "downloads": 77479167,
+  "followers": 11575
+ }
+]

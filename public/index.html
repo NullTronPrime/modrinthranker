@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>modrinthranker</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--line:#30363d;--tx:#e6edf3;--mut:#8b949e;--acc:#58a6ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,Segoe UI,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px}
+h1{font-size:22px;margin:8px 0 2px}
+h1 small{color:var(--mut);font-weight:400}
+p.sub{color:var(--mut);margin:4px 0 20px}
+h2{font-size:16px;margin:24px 0 8px;color:var(--acc);display:flex;align-items:baseline;gap:8px}
+h2 small{color:var(--mut);font-weight:400}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:600;font-size:13px}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.rank{color:var(--mut);width:3em}
+.tab{display:none}
+.tab.on{display:block}
+nav{display:flex;gap:8px;margin:16px 0}
+nav button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:14px}
+nav button.on{background:var(--acc);color:#0d1117;border-color:var(--acc)}
+footer{color:var(--mut);font-size:12px;margin-top:28px}
+</style>
+</head>
+<body>
+<main>
+<h1>modrinthranker <small>Modrinth census &amp; leaderboards</small></h1>
+<p class="sub" id="sub">loading meta...</p>
+<nav>
+<button data-k="projects" class="on">projects</button>
+<button data-k="authors">authors</button>
+<button data-k="deps">spiderweb</button>
+</nav>
+<div id="projects" class="tab on"></div>
+<div id="authors" class="tab"></div>
+<div id="deps" class="tab"></div>
+<footer>Derived from data crawled from api.modrinth.com. Visitors never query the Modrinth API directly; this site only ships committed JSON snapshots refreshed by GitHub Actions.</footer>
+</main>
+<script>
+const q=fetch("meta.json").then(r=>r.json());
+const P=fetch("projects.json").then(r=>r.json());
+const A=fetch("authors.json").then(r=>r.json());
+const D=fetch("deps.json").then(r=>r.json());
+const fmt=n=>n==null?"-":n.toLocaleString("en-US");
+function rows(list,cols){return list.map((o,i)=>`<tr><td class="rank">${i+1}</td>`+cols.map(c=>`<td${/num|dl|fb|n$/.test(c)?' class="num"':''}>${fmt(o[c])}</td>`).join("")+"</tr>").join("");}
+function head(cols){return "<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>";}
+function table(list,cols){return `<table>${head(cols)}${rows(list,cols)}</table>`;}
+window.addEventListener("DOMContentLoaded",async()=>{
+ const [meta,p,a]=await Promise.all([q,P,A]);const d=await D.catch(()=>[]);
+ document.getElementById("sub").textContent=`${fmt(meta.projects)} projects, ${fmt(meta.authors)} authors, ${fmt(meta.deps)} spiderweb edges, updated ${new Date(meta.generated*1000).toUTCString()}`;
+ document.getElementById("projects").innerHTML=table(p.slice(0,25),["title","downloads","followers","status"]);
+ document.getElementById("authors").innerHTML=table(a.slice(0,50),["username","downloads","projects","followers","downloads/project"]);
+ const deps=d.slice(0,400);
+ document.getElementById("deps").innerHTML=table(deps,["from","to","type"])+`<p class="sub">${fmt(meta.deps)} dependency + team-collab edges total</p>`;
+});
+</script>
+</body>
+</html>
