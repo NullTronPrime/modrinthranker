@@ -1,0 +1,46 @@
+name: census-weekly
+on:
+  schedule:
+    - cron: "22 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      top_n:
+        description: dep-scoped top N
+        required: false
+        default: "400"
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: crawl full census
+        env:
+          MR_UA: modrinthranker/1.0 (https://github.com/NullTronPrime/modrinthranker; ragav.dev@example.org)
+          MR_RPM: "90"
+          MR_TOP_N: ${{ inputs.top_n || '400' }}
+        run: python modrinth_ranker.py --full
+      - name: commit census
+        run: |
+          git config user.name "modrinthranker bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/ public/
+          git diff --cached --quiet || git commit -m "census snapshot"
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}" HEAD:main
+      - name: configure pages
+        uses: actions/configure-pages@v5
+      - name: upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - name: deploy pages
+        uses: actions/deploy-pages@v4

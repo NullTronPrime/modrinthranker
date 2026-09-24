@@ -1,0 +1,24 @@
+#------------- generated --------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+#------------- local state (derived, re-crawl regenerates) --------------
+data/cache/
+data/*.sqlite
+data/*.sqlite-*
+public/*.tmp*
+.tmp/
+
+#------------- secrets / local config --------------
+.env
+.env.*
+!.env.example
+
+#------------- tooling --------------
+.idea/
+.vscode/
+*.log
