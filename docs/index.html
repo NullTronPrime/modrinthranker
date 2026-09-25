@@ -12,11 +12,9 @@ main{max-width:1100px;margin:0 auto;padding:24px}
 h1{font-size:22px;margin:8px 0 2px}
 h1 small{color:var(--mut);font-weight:400}
 p.sub{color:var(--mut);margin:4px 0 20px}
-h2{font-size:16px;margin:24px 0 8px;color:var(--acc);display:flex;align-items:baseline;gap:8px}
-h2 small{color:var(--mut);font-weight:400}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
-th{color:var(--mut);font-weight:600;font-size:13px}
+th{color:var(--mut);font-weight:600;font-size:13px;position:sticky;top:0;background:var(--card)}
 tr:last-child td{border-bottom:0}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 a{color:var(--acc);text-decoration:none}
@@ -28,6 +26,9 @@ nav{display:flex;gap:8px;margin:16px 0}
 nav button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:14px}
 nav button.on{background:var(--acc);color:#0d1117;border-color:var(--acc)}
 footer{color:var(--mut);font-size:12px;margin-top:28px}
+#sentinel{height:40px}
+.loading{color:var(--mut);text-align:center;padding:14px;font-size:14px}
+.wrap{max-height:70vh;overflow:auto;border-radius:8px}
 </style>
 </head>
 <body>
@@ -42,25 +43,77 @@ footer{color:var(--mut);font-size:12px;margin-top:28px}
 <div id="projects" class="tab on"></div>
 <div id="authors" class="tab"></div>
 <div id="deps" class="tab"></div>
+<div id="sentinel"></div>
 <footer>Derived from data crawled from api.modrinth.com. Visitors never query the Modrinth API directly; this site only ships committed JSON snapshots refreshed by GitHub Actions.</footer>
 </main>
 <script>
-const q=fetch("meta.json").then(r=>r.json());
-const P=fetch("top.json").then(r=>r.json());
-const A=fetch("authors.json").then(r=>r.json());
-const D=fetch("deps.json").then(r=>r.json());
-const I=fetch("projects-index.json").then(r=>r.json()).catch(()=>null);
-const fmt=n=>n==null?"-":n.toLocaleString("en-US");
-function rows(list,cols){return list.map((o,i)=>`<tr><td class="rank">${i+1}</td>`+cols.map(c=>`<td${/num|dl|fb|n$/.test(c)?' class="num"':''}>${fmt(o[c])}</td>`).join("")+"</tr>").join("");}
-function head(cols){return "<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>";}
-function table(list,cols){return `<table>${head(cols)}${rows(list,cols)}</table>`;}
+const $=s=>document.querySelector(s);
+const fmt=n=>n==null||n===""?"-":Number(n).toLocaleString("en-US");
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+function head(cols){return "<tr><th class='rank'>#</th>"+cols.map(c=>`<th${/num|dl|fb|n$/.test(c)?" class='num'":""}>${esc(c)}</th>`).join("")+"</tr>";}
+function rows(list,cols,base){return list.map((o,i)=>`<tr><td class="rank">${base+i+1}</td>`+cols.map(c=>`<td${/num|dl|fb|n$/.test(c)?" class='num'":""}>${cell(o,c)}</td>`).join("")+"</tr>").join("");}
+function cell(o,c){
+  const v=o[c];
+  if(c==="from_title"||c==="to_title"){const s=o[c.replace("_title","_slug")];return s?`<a href="https://modrinth.com/project/${s}">${esc(v||s)}</a>`:esc(v);}
+  if(c==="title"){const s=o.slug;return s?`<a href="https://modrinth.com/project/${s}">${esc(v||s)}</a>`:esc(v);}
+  if(c==="username"){return esc(v);}
+  if(c==="collaborators"){return fmt((o.collaborator_count||0));}
+  return fmt(v);
+}
+function tableShell(id,cols){$(id).innerHTML=`<div class="wrap"><table><thead>${head(cols)}</thead><tbody id="${id}-body"></tbody></table></div><div class="loading" id="${id}-msg">scroll to load more</div>`;}
+
+const TOP=250;
+const views={
+  projects:{cols:["title","downloads","followers","versions"],data:[],done:false,busy:false,
+    async more(){
+      if(!this.data.length){this.data=await (await fetch("top-projects.json")).json();return;}
+      const idx=await (await fetch("projects-index.json")).json();
+      const n=this.shard||0,s=idx.shards[n];
+      if(!s){this.done=true;return;}
+      const part=await (await fetch(s.file)).json();
+      this.data=this.data.concat(n===0?part.slice(TOP):part);
+      this.shard=n+1;
+    }},
+  authors:{cols:["username","downloads","projects","followers","downloads_per_project"],data:[],done:false,busy:false,
+    async more(){
+      if(!this.data.length){this.data=await (await fetch("top-authors.json")).json();return;}
+      const idx=await (await fetch("authors-index.json")).json();
+      const n=this.shard||0,s=idx.shards[n];
+      if(!s){this.done=true;return;}
+      const part=await (await fetch(s.file)).json();
+      this.data=this.data.concat(n===0?part.slice(TOP):part);
+      this.shard=n+1;
+    }},
+  deps:{cols:["from_title","to_title","type"],data:[],done:false,busy:false,
+    async more(){if(!this.data.length){this.data=await (await fetch("deps.json")).json();this.done=true;}else this.done=true;}}
+};
+
+function render(k){
+  const v=views[k],body=$(`#${k}-body`);
+  body.innerHTML=rows(v.data.slice(0,Math.max(v.data.length,1)),v.cols,0);
+  if(v.data.length===0)body.innerHTML="";
+  const msg=$(`#${k}-msg`);
+  msg.textContent=v.done?"end of list":(v.data.length?`showing ${fmt(v.data.length)} - scroll for more`:"scroll to load more");
+}
+async function loadMore(k){
+  const v=views[k];if(v.busy||v.done)return;v.busy=true;
+  $(`#${k}-msg`).textContent="loading...";
+  try{await v.more();render(k);}catch(e){$(`#${k}-msg`).textContent="failed to load: "+e.message;}
+  v.busy=false;
+}
+let active="projects";
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on");active=b.dataset.k;$("#"+active).classList.add("on");
+  if(!$(`#${active}-body`)){tableShell(active,views[active].cols);loadMore(active);}
+});
+const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))loadMore(active);},{rootMargin:"600px"});
 window.addEventListener("DOMContentLoaded",async()=>{
- const [meta,p,a,idx]=await Promise.all([q,P,A,I]);const d=await D.catch(()=>[]);
- document.getElementById("sub").textContent=`${fmt(meta.projects)} projects, ${fmt(meta.authors)} authors, ${fmt(meta.deps)} spiderweb edges, updated ${new Date(meta.generated*1000).toUTCString()}`;
- document.getElementById("projects").innerHTML=table(p.slice(0,25),["title","downloads","followers","status"])+`<p class="sub">Top 25 of ${fmt(meta.projects)}; full census ships as ${fmt(idx?idx.shards.length:meta.project_shards)} JSON shards.</p>`+(idx?`<p class="sub">${idx.shards.slice(0,6).map(s=>`<a href="${s.file}">${s.file}</a>`).join(" ")}${idx.shards.length>6?" …":""}</p>`:"");
- document.getElementById("authors").innerHTML=table(a.slice(0,50),["username","downloads","projects","followers","downloads/project"]);
- const deps=d.slice(0,400);
- document.getElementById("deps").innerHTML=table(deps,["from","to","type"])+`<p class="sub">${fmt(meta.deps)} dependency + team-collab edges total</p>`;
+  const meta=await (await fetch("meta.json")).json();
+  $("#sub").textContent=`${fmt(meta.projects)} projects, ${fmt(meta.authors)} authors, ${fmt(meta.deps)} spiderweb edges, updated ${new Date(meta.generated*1000).toUTCString()}`;
+  for(const k of Object.keys(views)){tableShell(k,views[k].cols);await loadMore(k);}
+  io.observe($("#sentinel"));
 });
 </script>
 </body>

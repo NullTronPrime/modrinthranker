@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import os
 import random
 import re
@@ -339,7 +340,7 @@ def emit(client, c, light=False):
             "categories": jload(r[4], []), "additional_categories": jload(r[5], []),
             "client_side": jload(r[6], []), "server_side": jload(r[7], []),
             "downloads": r[8], "followers": r[9], "versions": r[10],
-            "status": r[11], "published": r[12], "updated": r[13],
+            "published": r[12], "updated": r[13],
             "org": r[14], "author": r[15], "author_id": r[16],
             "members": members, "contributors": max(len(members) - 1, 0),
             "icon_url": r[17], "color": r[18], "featured": r[19],
@@ -425,22 +426,45 @@ def emit(client, c, light=False):
         return meta
     for stale in PUB.glob("projects-*.json"):
         stale.unlink()
-    shards = []
-    shard_size = SHARD_SIZE
-    for start in range(0, len(projects), shard_size):
-        chunk = projects[start : start + shard_size]
-        name = "projects-%04d.json" % (start // shard_size)
-        (PUB / name).write_text(json.dumps(chunk), "utf-8")
-        shards.append({"file": name, "count": len(chunk), "offset": start})
-    (PUB / "projects-index.json").write_text(
-        json.dumps({"count": len(projects), "shard_size": shard_size, "shards": shards}),
-        "utf-8",
-    )
-    (PUB / "top.json").write_text(json.dumps(projects[:250]), "utf-8")
-    meta["project_shards"] = len(shards)
-    (PUB / "authors.json").write_text(json.dumps(authors), "utf-8")
+    for stale in PUB.glob("authors-*.json"):
+        stale.unlink()
+    for name in ("projects.json", "authors.json", "top.json"):
+        old = PUB / name
+        if old.exists():
+            old.unlink()
+
+    def shard_out(items, prefix, size, top_n):
+        out = []
+        for start in range(0, len(items), size):
+            chunk = items[start : start + size]
+            name = "%s-%04d.json" % (prefix, start // size)
+            (PUB / name).write_text(json.dumps(chunk), "utf-8")
+            out.append({"file": name, "count": len(chunk), "offset": start})
+        (PUB / (prefix + "-index.json")).write_text(
+            json.dumps({"count": len(items), "shard_size": size, "shards": out}), "utf-8"
+        )
+        (PUB / ("top-" + prefix + ".json")).write_text(json.dumps(items[:top_n]), "utf-8")
+        return out
+
+    shard_out(projects, "projects", SHARD_SIZE, 250)
+    shard_out(authors, "authors", SHARD_SIZE, 250)
+    meta["project_shards"] = math.ceil(len(projects) / SHARD_SIZE)
     (PUB / "teams.json").write_text(json.dumps(teams), "utf-8")
-    (PUB / "deps.json").write_text(json.dumps(deps), "utf-8")
+    titles = {p["id"]: p["title"] for p in projects}
+    slugs = {p["id"]: p.get("slug") for p in projects}
+    rich = [
+        {
+            "from": d["from"], "to": d["to"], "type": d.get("type"),
+            "from_title": titles.get(d["from"]), "from_slug": slugs.get(d["from"]),
+            "to_title": titles.get(d["to"]), "to_slug": slugs.get(d["to"]),
+        }
+        for d in deps
+    ]
+    (PUB / "deps.json").write_text(json.dumps(rich), "utf-8")
+    meta["deps_ranked"] = sum(
+        1 for d in rich
+        if (titles.get(d["to"]) or "") != "" and (d.get("type") or "") != ""
+    )
     (PUB / "categories.json").write_text(
         json.dumps({"categories": cat_counts, "types": type_counts}), "utf-8"
     )
