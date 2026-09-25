@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>modrinthranker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2358a6ff'/%3E%3Ctext x='16' y='23' font-size='20' font-family='sans-serif' font-weight='bold' text-anchor='middle' fill='%230d1117'%3EM%3C/text%3E%3C/svg%3E">
 <style>
 :root{--bg:#0d1117;--card:#161b22;--line:#30363d;--tx:#e6edf3;--mut:#8b949e;--acc:#58a6ff}
 *{box-sizing:border-box}
@@ -60,7 +61,7 @@ function cell(o,c){
   if(c==="collaborators"){return fmt((o.collaborator_count||0));}
   return fmt(v);
 }
-function tableShell(id,cols){$(id).innerHTML=`<div class="wrap"><table><thead>${head(cols)}</thead><tbody id="${id}-body"></tbody></table></div><div class="loading" id="${id}-msg">scroll to load more</div>`;}
+function tableShell(id,cols){$("#"+id).innerHTML=`<div class="wrap"><table><thead>${head(cols)}</thead><tbody id="${id}-body"></tbody></table></div><div class="loading" id="${id}-msg">scroll to load more</div>`;}
 
 const TOP=250;
 const views={
