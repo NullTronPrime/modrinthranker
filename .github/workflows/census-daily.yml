@@ -32,9 +32,14 @@ jobs:
         env:
           MR_UA: modrinthranker/1.0 (https://github.com/NullTronPrime/modrinthranker; contact via repo issues)
           MR_RPM: "240"
-        run: python modrinth_ranker.py --emit
+        run: |
+          if [ ! -s data/ranks.sqlite ]; then
+            echo "no census database cached yet, census-weekly builds it; nothing to do"
+          else
+            python modrinth_ranker.py --emit
+          fi
       - name: compress
-        run: gzip -9 -f data/ranks.sqlite
+        run: gzip -9 -f data/ranks.sqlite || true
       - name: save census database
         uses: actions/cache/save@v4
         with:

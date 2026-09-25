@@ -42,12 +42,12 @@ jobs:
           MR_DEP_TOP: "20000"
         run: |
           if [ ! -s data/ranks.sqlite ]; then
-            python modrinth_ranker.py --full
+            echo "no census database cached yet, census-weekly builds it; nothing to do"
           else
             python modrinth_ranker.py --hourly
           fi
       - name: compress
-        run: gzip -9 -f data/ranks.sqlite
+        run: gzip -9 -f data/ranks.sqlite || true
       - name: save census database
         uses: actions/cache/save@v4
         with:

@@ -1,7 +1,7 @@
 name: census-weekly
 on:
   schedule:
-    - cron: "17 4 * * 0"
+    - cron: "41 4 * * *"
   workflow_dispatch:
 permissions:
   contents: write
