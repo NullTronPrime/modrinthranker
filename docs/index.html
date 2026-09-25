@@ -23,13 +23,17 @@ a:hover{text-decoration:underline}
 .rank{color:var(--mut);width:3em}
 .tab{display:none}
 .tab.on{display:block}
-nav{display:flex;gap:8px;margin:16px 0}
+nav{display:flex;gap:8px;margin:16px 0;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5}
 nav button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:14px}
 nav button.on{background:var(--acc);color:#0d1117;border-color:var(--acc)}
 footer{color:var(--mut);font-size:12px;margin-top:28px}
+.wrap{border-radius:8px}
 #sentinel{height:40px}
 .loading{color:var(--mut);text-align:center;padding:14px;font-size:14px}
-.wrap{max-height:70vh;overflow:auto;border-radius:8px}
+#graphbox{background:var(--card);border:1px solid var(--line);border-radius:8px}
+#graphbox svg{display:block;width:100%;height:640px;cursor:grab}
+.legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--mut);font-size:13px;margin:10px 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -39,11 +43,23 @@ footer{color:var(--mut);font-size:12px;margin-top:28px}
 <nav>
 <button data-k="projects" class="on">projects</button>
 <button data-k="authors">authors</button>
-<button data-k="deps">spiderweb</button>
+<button data-k="deps">most depended on mods</button>
+<button data-k="graph">graph</button>
 </nav>
 <div id="projects" class="tab on"></div>
 <div id="authors" class="tab"></div>
 <div id="deps" class="tab"></div>
+<div id="graph" class="tab">
+  <div class="legend">
+    <span><i style="background:#58a6ff"></i>project</span>
+    <span><i style="background:#f0883e"></i>developer</span>
+    <span><i style="background:#3fb950"></i>depends on</span>
+    <span><i style="background:#a371f7"></i>worked together</span>
+    <span>drag to pan, scroll to zoom, hover a node for detail</span>
+  </div>
+  <div id="graphbox"><svg id="gsvg"></svg></div>
+  <div class="loading" id="graph-msg">loading graph...</div>
+</div>
 <div id="sentinel"></div>
 <footer>Derived from data crawled from api.modrinth.com. Visitors never query the Modrinth API directly; this site only ships committed JSON snapshots refreshed by GitHub Actions.</footer>
 </main>
@@ -85,8 +101,10 @@ const views={
       this.data=this.data.concat(n===0?part.slice(TOP):part);
       this.shard=n+1;
     }},
-  deps:{cols:["from_title","to_title","type"],data:[],done:false,busy:false,
-    async more(){if(!this.data.length){this.data=await (await fetch("deps.json")).json();this.done=true;}else this.done=true;}}
+  deps:{cols:["title","depended_by","downloads"],data:[],done:false,busy:false,
+    async more(){
+      if(!this.data.length){this.data=await (await fetch("depended.json")).json();this.done=true;}
+      else this.done=true;}}
 };
 
 function render(k){
@@ -103,16 +121,74 @@ async function loadMore(k){
   v.busy=false;
 }
 let active="projects";
+let graphStarted=false;
+async function startGraph(){
+  if(graphStarted)return;graphStarted=true;
+  const box=$("#graphbox"),svg=$("#gsvg"),msg=$("#graph-msg");
+  let g;
+  try{g=await (await fetch("graph.json")).json();}catch(e){msg.textContent="graph unavailable: "+e.message;return;}
+  const NS="http://www.w3.org/2000/svg";
+  const nodes=g.nodes.map((n,i)=>({...n,x:Math.cos(i*2.399)*180+Math.random()*40,y:Math.sin(i*2.399)*180+Math.random()*40,vx:0,vy:0}));
+  const idx=new Map(nodes.map((n,i)=>[n.id,i]));
+  const edges=g.edges.filter(e=>idx.has(e.source)&&idx.has(e.target)).map(e=>({s:idx.get(e.source),t:idx.get(e.target),kind:e.kind}));
+  let W=1000,H=640,pan={x:0,y:0},k=1;
+  const line=(a,b,k)=>`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${k==="depends"?"#3fb950":k==="collab"?"#a371f7":"#8b949e"}" stroke-width="${k==="collab"?1.4:1}" stroke-opacity="${k==="works"?0.35:0.75}"/>`;
+  function draw(){
+    let out="";
+    for(const e of edges)out+=line(nodes[e.s],nodes[e.t],e.kind);
+    for(const n of nodes){
+      const r=n.type==="project"?Math.min(16,4+Math.sqrt((n.downloads||1)/2e5))*.7+3:4.5;
+      out+=`<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="${n.type==="project"?"#58a6ff":"#f0883e"}" stroke="#0d1117" stroke-width="1"><title>${esc(n.label)}${n.depended_by?" - "+n.depended_by+" depend on it":""}</title></circle>`;
+    }
+    svg.innerHTML=`<g transform="translate(${pan.x},${pan.y}) scale(${k})">${out}</g>`;
+  }
+  function tick(){
+    for(let i=0;i<nodes.length;i++){
+      const a=nodes[i];
+      for(let j=i+1;j<nodes.length;j++){
+        const b=nodes[j];let dx=b.x-a.x,dy=b.y-a.y;let d2=dx*dx+dy*dy;
+        if(d2<1){dx=Math.random()-.5;dy=Math.random()-.5;d2=1;}
+        const d=Math.sqrt(d2),f=900/d2;
+        const fx=dx/d*f,fy=dy/d*f;a.vx-=fx;a.vy-=fy;b.vx+=fx;b.vy+=fy;
+      }
+      a.vx-=a.x*0.006;a.vy-=a.y*0.006;
+    }
+    for(const e of edges){
+      const a=nodes[e.s],b=nodes[e.t];
+      const target=e.kind==="collab"?70:e.kind==="works"?85:150;
+      let dx=b.x-a.x,dy=b.y-a.y,d=Math.max(1,Math.hypot(dx,dy)),f=(d-target)*0.012*((d-target)>0?1:-0.6);
+      const fx=dx/d*f,fy=dy/d*f;a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy;
+    }
+    for(const n of nodes){n.vx*=0.82;n.vy*=0.82;n.x+=Math.max(-18,Math.min(18,n.vx));n.y+=Math.max(-18,Math.min(18,n.vy));}
+    draw();
+  }
+  for(let i=0;i<220;i++)tick();
+  let raf=null;
+  svg.addEventListener("wheel",e=>{e.preventDefault();k=Math.max(0.25,Math.min(4,k*(e.deltaY<0?1.12:0.89)));draw();},{passive:false});
+  let dragging=false,last=null;
+  svg.addEventListener("pointerdown",e=>{dragging=true;last=[e.clientX,e.clientY];svg.setPointerCapture(e.pointerId);});
+  svg.addEventListener("pointermove",e=>{
+    if(!dragging)return;
+    const r=svg.getBoundingClientRect();
+    pan.x+=(e.clientX-last[0])*W/r.width;pan.y+=(e.clientY-last[1])*H/r.height;
+    last=[e.clientX,e.clientY];draw();
+  });
+  svg.addEventListener("pointerup",()=>dragging=false);
+  const io2=new IntersectionObserver(es=>{if(es.some(x=>x.isIntersecting)&&!raf)raf=setInterval(tick,40);else{clearInterval(raf);raf=null;}});
+  io2.observe(box);
+  msg.textContent=`${nodes.length} nodes, ${edges.length} edges (blue = project, orange = developer, green = dependency, purple = shared project)`;
+}
+document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>{if(b.dataset.k==="graph")startGraph();}));
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
   b.classList.add("on");active=b.dataset.k;$("#"+active).classList.add("on");
-  if(!$(`#${active}-body`)){tableShell(active,views[active].cols);loadMore(active);}
+  if(views[active]&&!$(`#${active}-body`)){tableShell(active,views[active].cols);loadMore(active);}
 });
 const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))loadMore(active);},{rootMargin:"600px"});
 window.addEventListener("DOMContentLoaded",async()=>{
   const meta=await (await fetch("meta.json")).json();
-  $("#sub").textContent=`${fmt(meta.projects)} projects, ${fmt(meta.authors)} authors, ${fmt(meta.deps)} spiderweb edges, updated ${new Date(meta.generated*1000).toUTCString()}`;
+  $("#sub").textContent=`${fmt(meta.projects)} projects, ${fmt(meta.authors)} authors, ${fmt(meta.depended||meta.deps)} mods ranked by dependents, updated ${new Date(meta.generated*1000).toUTCString()}`;
   for(const k of Object.keys(views)){tableShell(k,views[k].cols);await loadMore(k);}
   io.observe($("#sentinel"));
 });

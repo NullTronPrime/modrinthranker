@@ -292,8 +292,13 @@ def collect_users(client, c, user_ids):
     return got
 
 
-def crawl_deps(client, c, top_k):
-    rows = c.execute("SELECT id FROM projects ORDER BY downloads DESC LIMIT ?", (top_k,)).fetchall()
+def crawl_deps(client, c, top_k, ids=None):
+    if ids is None:
+        rows = c.execute(
+            "SELECT id FROM projects ORDER BY downloads DESC LIMIT ?", (top_k,)
+        ).fetchall()
+    else:
+        rows = [(i,) for i in ids]
     edges = 0
     for n, (pid,) in enumerate(rows, 1):
         d = client.get("/project/%s/dependencies" % pid)
@@ -314,6 +319,49 @@ def crawl_deps(client, c, top_k):
             c.commit()
             log("  deps %d/%d edges %d" % (n, len(rows), edges))
     return edges
+
+
+def build_graph(c, projects, inbound, limit=140):
+    sel = projects[:limit]
+    ids = {p["id"] for p in sel}
+    nodes = []
+    seen = set()
+    for p in sel:
+        key = "p:" + p["id"]
+        if key in seen:
+            continue
+        seen.add(key)
+        nodes.append({
+            "id": key, "label": p["title"] or p["id"], "type": "project",
+            "slug": p.get("slug"), "downloads": p.get("downloads") or 0,
+            "depended_by": inbound.get(p["id"], 0),
+        })
+    edges = []
+    members = {}
+    for pid, uid, uname in c.execute(
+        """SELECT tp.project_id, pt.user_id, pt.username
+           FROM team_projects tp JOIN project_team pt ON pt.project_id = tp.team_id
+           WHERE tp.project_id IN (%s)""" % ",".join("?" * len(ids)),
+        tuple(ids),
+    ):
+        members.setdefault(pid, []).append((uid, uname))
+    for pid, people in members.items():
+        for uid, uname in people:
+            key = "u:" + uid
+            if key not in seen:
+                seen.add(key)
+                nodes.append({"id": key, "label": uname or uid, "type": "user"})
+            edges.append({"source": key, "target": "p:" + pid, "kind": "works"})
+        for i in range(len(people)):
+            for j in range(i + 1, len(people)):
+                edges.append({
+                    "source": "u:" + people[i][0], "target": "u:" + people[j][0],
+                    "kind": "collab",
+                })
+    for src, tgt, kind in c.execute("SELECT project_id, dep_project_id, dependency_type FROM deps"):
+        if src in ids and tgt in ids:
+            edges.append({"source": "p:" + src, "target": "p:" + tgt, "kind": "depends", "type": kind})
+    return {"nodes": nodes, "edges": edges}
 
 
 def emit(client, c, light=False):
@@ -419,9 +467,41 @@ def emit(client, c, light=False):
     }
 
     PUB.mkdir(exist_ok=True)
+
+    def write_if_changed(path, data):
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(data, "utf-8")
+        if path.exists() and path.stat().st_size == tmp.stat().st_size:
+            if path.read_bytes() == tmp.read_bytes():
+                tmp.unlink()
+                return False
+        tmp.replace(path)
+        return True
+
     if light:
-        (PUB / "top.json").write_text(json.dumps(projects[:250]), "utf-8")
-        (PUB / "meta.json").write_text(json.dumps(meta, indent=1), "utf-8")
+        titles = {}
+        slugs = {}
+        for i, t, s in c.execute("SELECT id, title, slug FROM projects"):
+            titles[i] = t
+            slugs[i] = s
+        inbound = {}
+        for tgt, cnt in c.execute(
+            "SELECT dep_project_id, COUNT(DISTINCT project_id) FROM deps GROUP BY dep_project_id"
+        ):
+            inbound[tgt] = cnt
+        write_if_changed(PUB / "top-projects.json", json.dumps(projects[:250]))
+        write_if_changed(PUB / "top-authors.json", json.dumps(authors[:250]))
+        write_if_changed(
+            PUB / "depended.json",
+            json.dumps(
+                [
+                    {"id": i, "title": titles.get(i), "slug": slugs.get(i), "depended_by": n}
+                    for i, n in sorted(inbound.items(), key=lambda kv: (-kv[1], kv[0]))
+                    if titles.get(i)
+                ]
+            ),
+        )
+        write_if_changed(PUB / "meta.json", json.dumps(meta, indent=1))
         log("emitted light %s" % json.dumps(meta))
         return meta
     for stale in PUB.glob("projects-*.json"):
@@ -438,12 +518,13 @@ def emit(client, c, light=False):
         for start in range(0, len(items), size):
             chunk = items[start : start + size]
             name = "%s-%04d.json" % (prefix, start // size)
-            (PUB / name).write_text(json.dumps(chunk), "utf-8")
+            write_if_changed(PUB / name, json.dumps(chunk))
             out.append({"file": name, "count": len(chunk), "offset": start})
-        (PUB / (prefix + "-index.json")).write_text(
-            json.dumps({"count": len(items), "shard_size": size, "shards": out}), "utf-8"
+        write_if_changed(
+            PUB / (prefix + "-index.json"),
+            json.dumps({"count": len(items), "shard_size": size, "shards": out}),
         )
-        (PUB / ("top-" + prefix + ".json")).write_text(json.dumps(items[:top_n]), "utf-8")
+        write_if_changed(PUB / ("top-" + prefix + ".json"), json.dumps(items[:top_n]))
         return out
 
     shard_out(projects, "projects", SHARD_SIZE, 250)
@@ -461,6 +542,23 @@ def emit(client, c, light=False):
         for d in deps
     ]
     (PUB / "deps.json").write_text(json.dumps(rich), "utf-8")
+    inbound = {}
+    for tgt, cnt in c.execute(
+        "SELECT dep_project_id, COUNT(DISTINCT project_id) FROM deps GROUP BY dep_project_id"
+    ):
+        inbound[tgt] = cnt
+    downloads = {p["id"]: p.get("downloads") or 0 for p in projects}
+    depended = [
+        {
+            "id": i, "title": titles.get(i), "slug": slugs.get(i),
+            "depended_by": n, "downloads": downloads.get(i, 0),
+        }
+        for i, n in sorted(inbound.items(), key=lambda kv: (-kv[1], kv[0]))
+        if titles.get(i)
+    ]
+    (PUB / "depended.json").write_text(json.dumps(depended), "utf-8")
+    meta["depended"] = len(depended)
+    (PUB / "graph.json").write_text(json.dumps(build_graph(c, projects, inbound)), "utf-8")
     meta["deps_ranked"] = sum(
         1 for d in rich
         if (titles.get(d["to"]) or "") != "" and (d.get("type") or "") != ""
@@ -470,6 +568,65 @@ def emit(client, c, light=False):
     )
     (PUB / "meta.json").write_text(json.dumps(meta, indent=1), "utf-8")
     return meta
+
+
+def get_meta(c, key, default=None):
+    row = c.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_meta(c, key, value):
+    c.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (key, str(value)))
+
+
+def hourly(client, c):
+    checked = int(time.time())
+    top_n = int(os.environ.get("MR_TOP_N", "5000"))
+    slices = int(os.environ.get("MR_SLICES", "24"))
+    hit = client.get("/search?index=downloads&limit=%d&offset=0" % SEARCH_LIMIT)
+    ids = [h.get("project_id") for h in (hit or {}).get("hits", []) if h.get("project_id")]
+    offset = SEARCH_LIMIT
+    while len(ids) < top_n:
+        page = client.get("/search?index=downloads&limit=%d&offset=%d" % (SEARCH_LIMIT, offset))
+        batch = [h.get("project_id") for h in (page or {}).get("hits", []) if h.get("project_id")]
+        if not batch:
+            break
+        ids.extend(batch)
+        offset += SEARCH_LIMIT
+    top_ids = ids[:top_n]
+    log("hourly top %d" % len(top_ids))
+    ingest_ids(client, c, top_ids, checked)
+    c.commit()
+    slice_no = int(get_meta(c, "slice_no", "0") or 0)
+    rows = c.execute(
+        "SELECT id FROM projects WHERE id NOT IN (SELECT value FROM json_each(?)) ORDER BY downloads DESC",
+        (json.dumps(top_ids),),
+    ).fetchall()
+    per = max(1, len(rows) // slices)
+    start = slice_no * per
+    chunk = [r[0] for r in rows[start : start + per]]
+    log("slice %d/%d %d projects" % (slice_no, slices, len(chunk)))
+    ingest_ids(client, c, chunk, checked)
+    teams = c.execute(
+        """SELECT DISTINCT team FROM projects
+           WHERE last_checked >= ? AND team IS NOT NULL""", (checked,)
+    ).fetchall()
+    fresh = [r[0] for r in teams]
+    if fresh:
+        collect_teams(client, c, fresh)
+    link_teams(c)
+    dep_top = int(os.environ.get("MR_DEP_TOP", "20000"))
+    dep_per = max(1, dep_top // slices)
+    dep_slice = [r[0] for r in c.execute(
+        "SELECT id FROM projects ORDER BY downloads DESC LIMIT ? OFFSET ?",
+        (dep_per, (slice_no % max(1, dep_top // dep_per)) * dep_per),
+    )]
+    edges = crawl_deps(client, c, len(dep_slice), dep_slice)
+    log("slice deps %d edges %d" % (len(dep_slice), edges))
+    set_meta(c, "slice_no", (slice_no + 1) % slices)
+    set_meta(c, "last_hourly", checked)
+    c.commit()
+    return {"top": len(top_ids), "slice": len(chunk), "deps": edges}
 
 
 def full(client, c):
@@ -511,6 +668,7 @@ def main():
     ap.add_argument("--emit", action="store_true")
     ap.add_argument("--users", action="store_true")
     ap.add_argument("--deps", action="store_true")
+    ap.add_argument("--hourly", action="store_true")
     a = ap.parse_args()
     client = PacedClient()
     c = sqlite3.connect(DB)
@@ -520,6 +678,9 @@ def main():
         full(client, c)
     if a.live:
         live(client, c)
+    if a.hourly:
+        stats = hourly(client, c)
+        log("hourly %s" % json.dumps(stats))
     if a.emit:
         link_teams(c)
     if a.users:
@@ -532,7 +693,7 @@ def main():
         edges = crawl_deps(client, c, TOP_N)
         c.commit()
         log("deps edges %d" % edges)
-    if a.web or a.full or a.live or a.emit or a.users or a.deps:
+    if a.web or a.full or a.live or a.emit or a.users or a.deps or a.hourly:
         c.commit()
         held = c.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
         if held < MIN_PUBLISH:
