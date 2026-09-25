@@ -22,3 +22,5 @@ public/*.tmp*
 .idea/
 .vscode/
 *.log
+census.log
+census.err
