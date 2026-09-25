@@ -46,17 +46,18 @@ footer{color:var(--mut);font-size:12px;margin-top:28px}
 </main>
 <script>
 const q=fetch("meta.json").then(r=>r.json());
-const P=fetch("projects.json").then(r=>r.json());
+const P=fetch("top.json").then(r=>r.json());
 const A=fetch("authors.json").then(r=>r.json());
 const D=fetch("deps.json").then(r=>r.json());
+const I=fetch("projects-index.json").then(r=>r.json()).catch(()=>null);
 const fmt=n=>n==null?"-":n.toLocaleString("en-US");
 function rows(list,cols){return list.map((o,i)=>`<tr><td class="rank">${i+1}</td>`+cols.map(c=>`<td${/num|dl|fb|n$/.test(c)?' class="num"':''}>${fmt(o[c])}</td>`).join("")+"</tr>").join("");}
 function head(cols){return "<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>";}
 function table(list,cols){return `<table>${head(cols)}${rows(list,cols)}</table>`;}
 window.addEventListener("DOMContentLoaded",async()=>{
- const [meta,p,a]=await Promise.all([q,P,A]);const d=await D.catch(()=>[]);
+ const [meta,p,a,idx]=await Promise.all([q,P,A,I]);const d=await D.catch(()=>[]);
  document.getElementById("sub").textContent=`${fmt(meta.projects)} projects, ${fmt(meta.authors)} authors, ${fmt(meta.deps)} spiderweb edges, updated ${new Date(meta.generated*1000).toUTCString()}`;
- document.getElementById("projects").innerHTML=table(p.slice(0,25),["title","downloads","followers","status"]);
+ document.getElementById("projects").innerHTML=table(p.slice(0,25),["title","downloads","followers","status"])+`<p class="sub">Top 25 of ${fmt(meta.projects)}; full census ships as ${fmt(idx?idx.shards.length:meta.project_shards)} JSON shards.</p>`+(idx?`<p class="sub">${idx.shards.slice(0,6).map(s=>`<a href="${s.file}">${s.file}</a>`).join(" ")}${idx.shards.length>6?" …":""}</p>`:"");
  document.getElementById("authors").innerHTML=table(a.slice(0,50),["username","downloads","projects","followers","downloads/project"]);
  const deps=d.slice(0,400);
  document.getElementById("deps").innerHTML=table(deps,["from","to","type"])+`<p class="sub">${fmt(meta.deps)} dependency + team-collab edges total</p>`;

@@ -24,3 +24,5 @@ public/*.tmp*
 *.log
 census.log
 census.err
+refresh.log
+refresh.err

@@ -26,6 +26,7 @@ UA = os.environ.get(
 RPM = int(os.environ.get("MR_RPM", "90"))
 TOP_N = int(os.environ.get("MR_TOP_N", "400"))
 SEARCH_LIMIT = 100
+SHARD_SIZE = 5000
 BULK_LIMIT = 800
 RETRIES = 8
 TTL = 24 * 3600
@@ -80,6 +81,11 @@ class PacedClient:
                     continue
                 log("  giveup %s %s" % (e.code, path[:70]))
                 return None
+            except (TimeoutError, OSError) as e:
+                wait = min(5 * (attempt + 1), 40)
+                log("  neterr %s retry %ss %s" % (type(e).__name__, wait, path[:60]))
+                time.sleep(wait)
+                continue
         raise RuntimeError("gave up on %s" % path[:90])
 
 
@@ -105,11 +111,16 @@ CREATE TABLE IF NOT EXISTS deps(
 CREATE TABLE IF NOT EXISTS users(
   id TEXT PRIMARY KEY, username TEXT, name TEXT, bio TEXT,
   followers INTEGER, joined TEXT, role TEXT, projects_created INTEGER,
-  last_checked INTEGER);
+  last_checked INTEGER, avatar_url TEXT, badges INTEGER, github_id TEXT);
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS team_projects(
+  team_id TEXT, project_id TEXT,
+  PRIMARY KEY(team_id, project_id));
 CREATE INDEX IF NOT EXISTS ix_dl ON projects(downloads DESC);
 CREATE INDEX IF NOT EXISTS ix_pt_user ON project_team(user_id);
 CREATE INDEX IF NOT EXISTS ix_pt_proj ON project_team(project_id);
+CREATE INDEX IF NOT EXISTS ix_tp_team ON team_projects(team_id);
+CREATE INDEX IF NOT EXISTS ix_tp_proj ON team_projects(project_id);
 """
 
 
@@ -126,12 +137,24 @@ PROJECT_ADDITIONS = [
 ]
 
 
+USER_ADDITIONS = [
+    ("avatar_url", "ALTER TABLE users ADD COLUMN avatar_url TEXT"),
+    ("badges", "ALTER TABLE users ADD COLUMN badges INTEGER"),
+    ("github_id", "ALTER TABLE users ADD COLUMN github_id TEXT"),
+]
+
+
 def init_db(c):
     c.executescript(SCHEMA)
     cols = {r[1] for r in c.execute("PRAGMA table_info(projects)")}
     for name, ddl in PROJECT_ADDITIONS:
         if name not in cols:
             c.execute(ddl)
+    ucols = {r[1] for r in c.execute("PRAGMA table_info(users)")}
+    for name, ddl in USER_ADDITIONS:
+        if name not in ucols:
+            c.execute(ddl)
+    c.commit()
 
 
 def jdump(v):
@@ -202,9 +225,19 @@ def walk(client, c, index):
         offset += SEARCH_LIMIT
         if offset % 1000 == 0:
             log("  %s offset %d/%s seen %d" % (index, offset, total, seen))
+            c.commit()
         if offset >= total:
             break
     return seen, total or 0
+
+
+def link_teams(c):
+    c.execute(
+        """INSERT OR IGNORE INTO team_projects(team_id, project_id)
+           SELECT team, id FROM projects WHERE team IS NOT NULL AND team <> ''"""
+    )
+    c.commit()
+    return c.execute("SELECT COUNT(*) FROM team_projects").fetchone()[0]
 
 
 def collect_teams(client, c, team_ids):
@@ -244,10 +277,14 @@ def collect_users(client, c, user_ids):
         checked = int(time.time())
         for u in body:
             c.execute(
-                "INSERT OR REPLACE INTO users VALUES(?,?,?,?,?,?,?,?,?)",
+                """INSERT OR REPLACE INTO users
+                   (id, username, name, bio, followers, joined, role,
+                    projects_created, last_checked, avatar_url, badges, github_id)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (u.get("id"), u.get("username"), u.get("name"), u.get("bio"),
-                 u.get("followers", 0) or 0, u.get("joined"), u.get("role"),
-                 u.get("projects_created", 0) or 0, checked),
+                 u.get("followers", 0) or 0, u.get("created"), u.get("role"),
+                 u.get("projects_created", 0) or 0, checked, u.get("avatar_url"),
+                 u.get("badges", 0) or 0, u.get("github_id")),
             )
             got += 1
     return got
@@ -265,11 +302,14 @@ def crawl_deps(client, c, top_k):
                               (pid, pr["id"], pr.get("dependency_type")))
                     edges += 1
             for v in d.get("versions") or []:
-                if v.get("project_id"):
-                    c.execute("INSERT OR IGNORE INTO deps VALUES(?,?,?)",
-                              (pid, v["project_id"], v.get("dependency_type")))
-                    edges += 1
+                for dep in v.get("dependencies") or []:
+                    target = dep.get("project_id") or dep.get("version_id")
+                    if target:
+                        c.execute("INSERT OR IGNORE INTO deps VALUES(?,?,?)",
+                                  (pid, target, dep.get("dependency_type")))
+                        edges += 1
         if n % 50 == 0:
+            c.commit()
             log("  deps %d/%d edges %d" % (n, len(rows), edges))
     return edges
 
@@ -286,7 +326,10 @@ def emit(client, c):
         members = [
             m[0]
             for m in c.execute(
-                "SELECT username FROM project_team WHERE project_id=? ORDER BY is_owner DESC, username",
+                """SELECT pt.username FROM team_projects tp
+                  JOIN project_team pt ON pt.project_id = tp.team_id
+                  WHERE tp.project_id = ?
+                  ORDER BY pt.is_owner DESC, pt.username""",
                 (r[0],),
             )
         ]
@@ -304,12 +347,13 @@ def emit(client, c):
         })
 
     dl_rows = c.execute(
-        """SELECT t.user_id, SUM(p.downloads), COUNT(DISTINCT p.id),
+        """SELECT pt.user_id, SUM(p.downloads), COUNT(DISTINCT p.id),
              MAX(u.username), MAX(u.name), MAX(u.followers), MAX(u.joined)
-          FROM project_team t
-          JOIN projects p ON p.id = t.project_id
-          LEFT JOIN users u ON u.id = t.user_id
-          GROUP BY t.user_id"""
+          FROM team_projects tp
+          JOIN project_team pt ON pt.project_id = tp.team_id
+          JOIN projects p ON p.id = tp.project_id
+          LEFT JOIN users u ON u.id = pt.user_id
+          GROUP BY pt.user_id"""
     ).fetchall()
 
     authors = []
@@ -326,9 +370,10 @@ def emit(client, c):
 
     collab = {}
     for a, b, n in c.execute(
-        """SELECT a.user_id, b.user_id, COUNT(DISTINCT a.project_id)
-          FROM project_team a JOIN project_team b
-            ON a.project_id = b.project_id AND a.user_id <> b.user_id
+        """SELECT a.user_id, b.user_id, COUNT(DISTINCT tp.project_id)
+          FROM team_projects tp
+          JOIN project_team a ON a.project_id = tp.team_id
+          JOIN project_team b ON b.project_id = tp.team_id AND a.user_id <> b.user_id
           GROUP BY a.user_id, b.user_id"""
     ):
         collab.setdefault(a, []).append({"with": b, "projects": n})
@@ -339,11 +384,13 @@ def emit(client, c):
         a["collaborator_count"] = len(partners)
 
     teams = []
-    for tid, members in c.execute(
-        """SELECT t.project_id, COUNT(t.user_id) FROM project_team t
-          GROUP BY t.project_id"""
+    for tid, members, nproj in c.execute(
+        """SELECT pt.project_id, COUNT(pt.user_id), COUNT(DISTINCT tp.project_id)
+          FROM project_team pt
+          LEFT JOIN team_projects tp ON tp.team_id = pt.project_id
+          GROUP BY pt.project_id"""
     ):
-        teams.append({"team": tid, "members": members})
+        teams.append({"team": tid, "members": members, "projects": nproj})
 
     deps = [
         {"from": a, "to": b, "type": t}
@@ -370,7 +417,21 @@ def emit(client, c):
     }
 
     PUB.mkdir(exist_ok=True)
-    (PUB / "projects.json").write_text(json.dumps(projects), "utf-8")
+    for stale in PUB.glob("projects-*.json"):
+        stale.unlink()
+    shards = []
+    shard_size = SHARD_SIZE
+    for start in range(0, len(projects), shard_size):
+        chunk = projects[start : start + shard_size]
+        name = "projects-%04d.json" % (start // shard_size)
+        (PUB / name).write_text(json.dumps(chunk), "utf-8")
+        shards.append({"file": name, "count": len(chunk), "offset": start})
+    (PUB / "projects-index.json").write_text(
+        json.dumps({"count": len(projects), "shard_size": shard_size, "shards": shards}),
+        "utf-8",
+    )
+    (PUB / "top.json").write_text(json.dumps(projects[:250]), "utf-8")
+    meta["project_shards"] = len(shards)
     (PUB / "authors.json").write_text(json.dumps(authors), "utf-8")
     (PUB / "teams.json").write_text(json.dumps(teams), "utf-8")
     (PUB / "deps.json").write_text(json.dumps(deps), "utf-8")
@@ -392,6 +453,7 @@ def full(client, c):
         log("rail %s seen %d total_hits %d" % (index, n, total))
     rows = c.execute("SELECT team FROM projects").fetchall()
     members = collect_teams(client, c, [t[0] for t in rows])
+    link_teams(c)
     log("team members %d" % members)
     uids = [r[0] for r in c.execute("SELECT DISTINCT user_id FROM project_team WHERE user_id IS NOT NULL")]
     uids += [r[0] for r in c.execute("SELECT author_id FROM projects WHERE author_id IS NOT NULL")]
@@ -416,6 +478,9 @@ def main():
     ap.add_argument("--full", action="store_true")
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--web", action="store_true")
+    ap.add_argument("--emit", action="store_true")
+    ap.add_argument("--users", action="store_true")
+    ap.add_argument("--deps", action="store_true")
     a = ap.parse_args()
     client = PacedClient()
     c = sqlite3.connect(DB)
@@ -425,7 +490,19 @@ def main():
         full(client, c)
     if a.live:
         live(client, c)
-    if a.web or a.full or a.live:
+    if a.emit:
+        link_teams(c)
+    if a.users:
+        link_teams(c)
+        uids = [r[0] for r in c.execute("SELECT DISTINCT user_id FROM project_team")]
+        got = collect_users(client, c, uids)
+        c.commit()
+        log("users %d" % got)
+    if a.deps:
+        edges = crawl_deps(client, c, TOP_N)
+        c.commit()
+        log("deps edges %d" % edges)
+    if a.web or a.full or a.live or a.emit or a.users or a.deps:
         c.commit()
         meta = emit(client, c)
         c.commit()
