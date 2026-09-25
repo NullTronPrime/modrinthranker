@@ -13,10 +13,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 CACHE = DATA / "cache"
-PUB = ROOT / "docs"
+PUB = Path(os.environ.get("MR_PUB", str(ROOT / "docs")))
 for _d in (DATA, CACHE, PUB):
     _d.mkdir(parents=True, exist_ok=True)
-DB = DATA / "ranks.sqlite"
+DB = Path(os.environ.get("MR_DB", str(DATA / "ranks.sqlite")))
 
 BASE = os.environ.get("MR_BASE", "https://api.modrinth.com/v2")
 UA = os.environ.get(
@@ -27,6 +27,7 @@ RPM = int(os.environ.get("MR_RPM", "90"))
 TOP_N = int(os.environ.get("MR_TOP_N", "400"))
 SEARCH_LIMIT = 100
 SHARD_SIZE = 5000
+MIN_PUBLISH = 1000
 BULK_LIMIT = 800
 RETRIES = 8
 TTL = 24 * 3600
@@ -314,14 +315,14 @@ def crawl_deps(client, c, top_k):
     return edges
 
 
-def emit(client, c):
+def emit(client, c, light=False):
     projects = []
     for r in c.execute(
         """SELECT id, slug, title, project_type, categories, additional_categories,
           client_side, server_side, downloads, followers, versions, status,
           published, updated, org, author, author_id, icon_url, color, featured,
           license, issues_url, source_url, wiki_url, discord_url, gallery
-          FROM projects ORDER BY downloads DESC"""
+          FROM projects ORDER BY downloads DESC""" + (" LIMIT 250" if light else "")
     ):
         members = [
             m[0]
@@ -417,6 +418,11 @@ def emit(client, c):
     }
 
     PUB.mkdir(exist_ok=True)
+    if light:
+        (PUB / "top.json").write_text(json.dumps(projects[:250]), "utf-8")
+        (PUB / "meta.json").write_text(json.dumps(meta, indent=1), "utf-8")
+        log("emitted light %s" % json.dumps(meta))
+        return meta
     for stale in PUB.glob("projects-*.json"):
         stale.unlink()
     shards = []
@@ -504,7 +510,13 @@ def main():
         log("deps edges %d" % edges)
     if a.web or a.full or a.live or a.emit or a.users or a.deps:
         c.commit()
-        meta = emit(client, c)
+        held = c.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+        if held < MIN_PUBLISH:
+            log("refusing to publish: only %d projects in database" % held)
+            c.close()
+            raise SystemExit(1)
+        light = a.live and not (a.full or a.emit or a.users or a.deps or a.web)
+        meta = emit(client, c, light=light)
         c.commit()
         log("emitted %s" % json.dumps(meta))
     c.close()
