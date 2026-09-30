@@ -1,15 +1,15 @@
 {
- "generated": 1790774552,
+ "generated": 1790775690,
  "projects": 160170,
  "authors": 69142,
  "users": 69142,
  "teams": 152471,
  "deps": 28374,
  "modrinth_statistics": {
-  "projects": 160170,
-  "versions": 1436386,
-  "authors": 69147,
-  "files": 1558888
+  "projects": 160189,
+  "versions": 1437065,
+  "authors": 69154,
+  "files": 1559662
  },
  "project_shards": 33,
  "depended": 5105,
