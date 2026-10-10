@@ -36,6 +36,11 @@ th:hover{color:var(--tx)}
 tbody tr:hover{background:#1c2128}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 td.rank,th.rank{color:var(--mut);width:3.5em}
+.ico,.av{width:20px;height:20px;border-radius:4px;vertical-align:-4px;object-fit:cover;background:var(--line)}
+.av{border-radius:50%}
+.ico.ph,.av.ph{display:inline-block;background:#21262d;border:1px solid var(--line)}
+td.title-cell{white-space:nowrap}
+td.title-cell img{margin-right:7px}
 a{color:var(--acc);text-decoration:none}
 a:hover{text-decoration:underline}
 .bar-cell{background:linear-gradient(90deg,#1f6feb33,transparent);position:relative}
@@ -132,8 +137,17 @@ function colLabel(c){return c.replace(/_/g," ").replace("downloads per project",
 
 function cell(o,c,max){
   const v=o[c];
-  if(c==="title"){const s=o.slug;return s?`<a href="https://modrinth.com/project/${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(v||s)}</a>`:esc(v);}
-  if(c==="username")return esc(v);
+  if(c==="icon")return o.icon_url?`<img class="ico" src="${esc(o.icon_url)}" alt="" loading="lazy" width="20" height="20">`:`<span class="ico ph"></span>`;
+  if(c==="avatar")return o.avatar_url?`<img class="av" src="${esc(o.avatar_url)}" alt="" loading="lazy" width="20" height="20" referrerpolicy="no-referrer">`:`<span class="av ph"></span>`;
+  if(c==="title"){
+    const s=o.slug;
+    const ico=o.icon_url?`<img class="ico" src="${esc(o.icon_url)}" alt="" loading="lazy" width="18" height="18"> `:``;
+    return ico+(s?`<a href="https://modrinth.com/project/${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(v||s)}</a>`:esc(v));
+  }
+  if(c==="username"){
+    const av=o.avatar_url?`<img class="av" src="${esc(o.avatar_url)}" alt="" loading="lazy" width="20" height="20" referrerpolicy="no-referrer"> `:``;
+    return av+`<a href="https://modrinth.com/user/${encodeURIComponent(v||"")}" target="_blank" rel="noopener">${esc(v)}</a>`;
+  }
   if(c==="depended_by")return `<b>${fmt(v)}</b>`;
   if(c==="downloads"||c==="followers"){
     const m=max[c]||1;
@@ -186,13 +200,13 @@ function filtered(k){
 }
 
 function render(k){
-  const v=views[k],body=$("#"+k+"-body"),t=body&&body.tBodies[0];
+  const v=views[k],t=$("#"+k+"-body");
   if(!t)return;
   const list=filtered(k);
   const max={};
   for(const c of v.cols)max[c]=Math.max(1,...list.slice(0,2000).map(o=>Number(o[c])||0));
   t.innerHTML=list.map((o,i)=>`<tr><td class="rank">${i+1}</td>`+
-    v.cols.map(c=>`<td${isNum(c)?' class="num"':""}>${cell(o,c,max)}</td>`).join("")+"</tr>").join("");
+    v.cols.map(c=>`<td${isNum(c)?' class="num"':""}${/title|username/.test(c)?' class="'+(/title/.test(c)?"title-cell":"")+'"':""}>${cell(o,c,max)}</td>`).join("")+"</tr>").join("");
   $("#count").textContent=list.length.toLocaleString("en-US")+" shown"+(q0()?"":" of "+v.data.length.toLocaleString("en-US")+" loaded");
   const msg=$("#"+k+"-msg");
   if(msg)msg.innerHTML=v.done?"end of list":(v.busy?'loading <span class="spin"></span>':"scroll to load more");

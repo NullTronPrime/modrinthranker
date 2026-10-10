@@ -398,7 +398,8 @@ def emit(client, c, light=False):
 
     dl_rows = c.execute(
         """SELECT pt.user_id, SUM(p.downloads), COUNT(DISTINCT p.id),
-             MAX(u.username), MAX(u.name), MAX(u.followers), MAX(u.joined)
+             MAX(u.username), MAX(u.name), MAX(u.followers), MAX(u.joined),
+             MAX(u.avatar_url), MAX(u.badges)
           FROM team_projects tp
           JOIN project_team pt ON pt.project_id = tp.team_id
           JOIN projects p ON p.id = tp.project_id
@@ -407,7 +408,7 @@ def emit(client, c, light=False):
     ).fetchall()
 
     authors = []
-    for uid, total_dl, np_, uname, nm, followers, joined in dl_rows:
+    for uid, total_dl, np_, uname, nm, followers, joined, avatar, badges in dl_rows:
         if not np_:
             continue
         authors.append({
@@ -415,6 +416,7 @@ def emit(client, c, light=False):
             "downloads": total_dl or 0, "projects": np_,
             "downloads_per_project": round((total_dl or 0) / np_, 1),
             "followers": followers or 0, "joined": joined,
+            "avatar_url": avatar, "badges": badges or 0,
         })
     authors.sort(key=lambda a: a["downloads"], reverse=True)
 
