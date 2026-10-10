@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -334,10 +335,16 @@ def build_graph(c, projects, inbound, limit=140):
         nodes.append({
             "id": key, "label": p["title"] or p["id"], "type": "project",
             "slug": p.get("slug"), "downloads": p.get("downloads") or 0,
-            "depended_by": inbound.get(p["id"], 0),
+            "depended_by": inbound.get(p["id"], 0), "icon": p.get("icon_url"),
         })
     edges = []
     members = {}
+    avatars = {}
+    try:
+        for uid, av in c.execute("SELECT id, avatar_url FROM users WHERE avatar_url IS NOT NULL"):
+            avatars[uid] = av
+    except sqlite3.Error:
+        pass
     for pid, uid, uname in c.execute(
         """SELECT tp.project_id, pt.user_id, pt.username
            FROM team_projects tp JOIN project_team pt ON pt.project_id = tp.team_id
@@ -350,7 +357,10 @@ def build_graph(c, projects, inbound, limit=140):
             key = "u:" + uid
             if key not in seen:
                 seen.add(key)
-                nodes.append({"id": key, "label": uname or uid, "type": "user"})
+                nodes.append({
+                "id": key, "label": uname or uid, "type": "user",
+                "avatar": avatars.get(uid),
+            })
             edges.append({"source": key, "target": "p:" + pid, "kind": "works"})
         for i in range(len(people)):
             for j in range(i + 1, len(people)):
@@ -365,6 +375,7 @@ def build_graph(c, projects, inbound, limit=140):
 
 
 def emit(client, c, light=False):
+    orgmap = org_labels(c)
     projects = []
     for r in c.execute(
         """SELECT id, slug, title, project_type, categories, additional_categories,
@@ -389,7 +400,8 @@ def emit(client, c, light=False):
             "client_side": jload(r[6], []), "server_side": jload(r[7], []),
             "downloads": r[8], "followers": r[9], "versions": r[10],
             "published": r[12], "updated": r[13],
-            "org": r[14], "author": r[15], "author_id": r[16],
+            "org": r[14], "org_name": (orgmap.get(r[14]) if r[14] else None),
+            "author": r[15], "author_id": r[16],
             "members": members, "contributors": max(len(members) - 1, 0),
             "icon_url": r[17], "color": r[18], "featured": r[19],
             "license": r[20], "issues_url": r[21], "source_url": r[22],
@@ -654,7 +666,33 @@ def facet_label(kind, val):
     return val or "unknown"
 
 
+def org_labels(c):
+    tally = {}
+    for org, uname in c.execute(
+        """SELECT p.org, pt.username FROM projects p
+           JOIN team_projects tp ON tp.project_id = p.id
+           JOIN project_team pt ON pt.project_id = tp.team_id
+           WHERE p.org IS NOT NULL AND p.org <> '' AND pt.username IS NOT NULL"""
+    ):
+        tally.setdefault(org, {}).setdefault(uname, 0)
+        tally[org][uname] += 1
+    out = {}
+    for org, people in tally.items():
+        best = sorted(people.items(), key=lambda kv: (-kv[1], kv[0]))
+        names = [n for n, _ in best[:2]]
+        out[org] = " / ".join(names)
+    for org, title in c.execute(
+        """SELECT org, title FROM projects WHERE org IS NOT NULL AND org <> ''
+           AND title IS NOT NULL AND title <> ''
+           ORDER BY downloads DESC"""
+    ):
+        if org not in out:
+            out[org] = title
+    return out
+
+
 def emit_facets(c, projects_by_dl):
+    orgname = org_labels(c)
     facet_counts = {"category": {}, "type": {}, "client_side": {},
                     "server_side": {}, "status": {}, "license": {}, "org": {}}
     for r in c.execute(
@@ -684,9 +722,12 @@ def emit_facets(c, projects_by_dl):
     facets = []
     for kind, counts in facet_counts.items():
         for val, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+            label = facet_label(kind, val)
+            if kind == "org":
+                label = orgname.get(val, val)
             facets.append({
                 "kind": kind, "value": val,
-                "label": facet_label(kind, val), "count": n,
+                "label": label, "count": n,
             })
     write_if_changed(PUB / "facets.json", json.dumps({"facets": facets}))
     return facets
@@ -726,8 +767,9 @@ def emit_facet_boards(c, projects_by_id, facets, per=100):
     for (kind, val), pids in groups.items():
         pids.sort(key=lambda p: -(projects_by_id.get(p, {}).get("downloads") or 0))
         top = [projects_by_id[p] for p in pids[:per] if p in projects_by_id]
-        safe = "".join(ch if ch.isalnum() else "_" for ch in str(val))[:60].strip("_") or "none"
-        name = "facets-%s-%s.json" % (kind, safe)
+        safe = "".join(ch if ch.isalnum() else "_" for ch in str(val))[:50]
+        sig = hashlib.sha1(str(val).encode("utf-8")).hexdigest()[:8]
+        name = "facets-%s-%s-%s.json" % (kind, safe, sig)
         write_if_changed(PUB / name, json.dumps(top))
         boards.append({"kind": kind, "value": val, "file": name,
                        "members": len(pids), "shown": len(top)})

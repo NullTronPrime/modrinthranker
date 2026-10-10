@@ -123,10 +123,16 @@ const $=s=>document.querySelector(s);
 const fmt=n=>{
   if(n==null||n==="")return "-";
   if(typeof n==="string"){
-    if(/^\d{4}-\d{2}-\d{2}/.test(n))return n.slice(0,10);
+    const m=n.match(/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}/);
+    if(m)return m[1];
     if(isNaN(Number(n)))return n;
   }
   return Number(n).toLocaleString("en-US");
+};
+const fmtDate=n=>{
+  if(!n)return "-";
+  const d=new Date(n);
+  return isNaN(d.getTime())?esc(String(n)).slice(0,10):d.toISOString().slice(0,10);
 };
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const getJSON=async u=>{const r=await fetch(u,{cache:"force-cache"});if(!r.ok)throw new Error(r.status+" "+u);return r.json();};
@@ -156,6 +162,11 @@ function cell(o,c,max){
   }
   if(typeof v==="string"&&isNaN(Number(v)))return v;
   return fmt(v);
+}
+function cellDate(o,c,max){
+  const v=o[c];
+  if(c==="joined"||c==="published"||c==="updated")return fmtDate(v);
+  return cell(o,c,max);
 }
 
 const views={
@@ -206,7 +217,7 @@ function render(k){
   const max={};
   for(const c of v.cols)max[c]=Math.max(1,...list.slice(0,2000).map(o=>Number(o[c])||0));
   t.innerHTML=list.map((o,i)=>`<tr><td class="rank">${i+1}</td>`+
-    v.cols.map(c=>`<td${isNum(c)?' class="num"':""}${/title|username/.test(c)?' class="'+(/title/.test(c)?"title-cell":"")+'"':""}>${cell(o,c,max)}</td>`).join("")+"</tr>").join("");
+    v.cols.map(c=>`<td${isNum(c)?' class="num"':""}${/title|username/.test(c)?' class="'+(/title/.test(c)?"title-cell":"")+'"':""}>${cellDate(o,c,max)}</td>`).join("")+"</tr>").join("");
   $("#count").textContent=list.length.toLocaleString("en-US")+" shown"+(q0()?"":" of "+v.data.length.toLocaleString("en-US")+" loaded");
   const msg=$("#"+k+"-msg");
   if(msg)msg.innerHTML=v.done?"end of list":(v.busy?'loading <span class="spin"></span>':"scroll to load more");
@@ -257,7 +268,7 @@ function renderFacet(){
   const head=`<tr><th class="rank">#</th>`+cols.map(c=>
     `<th class="${isNum(c)?"num ":""}" data-fc="${c}">${esc(colLabel(c))}${facetSort.c===c?(facetSort.d<0?" ↓":" ↑"):""}</th>`).join("")+"</tr>";
   host.innerHTML=`<table><thead>${head}</thead><tbody>`+shown.map((o,i)=>
-    `<tr><td class="rank">${i+1}</td>`+cols.map(c=>`<td${isNum(c)?' class="num"':""}>${cell(o,c,max)}</td>`).join("")+"</tr>").join("")+"</tbody></table>"+
+    `<tr><td class="rank">${i+1}</td>`+cols.map(c=>`<td${isNum(c)?' class="num"':""}>${cellDate(o,c,max)}</td>`).join("")+"</tr>").join("")+"</tbody></table>"+
     `<div class="msg">${shown.length.toLocaleString("en-US")} of ${facetList.length.toLocaleString("en-US")} in this facet</div>`;
   host.querySelectorAll("th[data-fc]").forEach(th=>th.onclick=()=>{
     const c=th.dataset.fc;
@@ -326,23 +337,31 @@ async function startGraph(){
   let g;
   try{g=await getJSON("graph.json");}catch(e){msg.textContent="graph unavailable: "+e.message;return;}
   const W=1000,H=640;
-  const nodes=g.nodes.map((n,i)=>({...n,x:Math.cos(i*2.399)*190,y:Math.sin(i*2.399)*190,vx:0,vy:0}));
+  const nodes=g.nodes.map((n,i)=>({...n,x:Math.cos(i*2.399)*260,y:Math.sin(i*2.399)*260,vx:0,vy:0}));
   const idx=new Map(nodes.map((n,i)=>[n.id,i]));
   const edges=g.edges.filter(e=>idx.has(e.source)&&idx.has(e.target))
     .map(e=>({s:idx.get(e.source),t:idx.get(e.target),kind:e.kind}));
   let pan={x:0,y:0},k=1;
   const col={depends:"#3fb950",collab:"#a371f7",works:"#8b949e"};
-  function draw(){
-    let out="";
+  const radius=n=>n.type==="project"?Math.max(7,Math.min(20,4+Math.sqrt((n.downloads||1)/160000))):6;
+function draw(){
+    let out="",defs="";
     for(const e of edges){
       const a=nodes[e.s],b=nodes[e.t];
       out+=`<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${col[e.kind]}" stroke-width="${e.kind==="collab"?1.3:1}" stroke-opacity="${e.kind==="works"?0.3:0.7}"/>`;
     }
-    for(const n of nodes){
-      const r=n.type==="project"?3+Math.min(13,Math.sqrt((n.downloads||1)/250000)):4.5;
-      out+=`<circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${n.type==="project"?"#58a6ff":"#f0883e"}" stroke="#0d1117" stroke-width="1"><title>${esc(n.label)}${n.depended_by?" — "+fmt(n.depended_by)+" depend on it":""}${n.downloads?" — "+fmt(n.downloads)+" downloads":""}</title></circle>`;
-    }
-    svg.innerHTML=`<g transform="translate(${pan.x.toFixed(1)},${pan.y.toFixed(1)}) scale(${k.toFixed(3)})">${out}</g>`;
+    nodes.forEach((n,i)=>{
+      const r=radius(n);
+      const title=`<title>${esc(n.label)}${n.depended_by?" — "+fmt(n.depended_by)+" depend on it":""}${n.downloads?" — "+fmt(n.downloads)+" downloads":""}</title>`;
+      if(n.icon||n.avatar){
+        defs+=`<clipPath id="c${i}"><circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${(r-0.5).toFixed(1)}"/></clipPath>`;
+        out+=`<image href="${esc(n.icon||n.avatar)}" x="${(n.x-r).toFixed(1)}" y="${(n.y-r).toFixed(1)}" width="${(r*2).toFixed(1)}" height="${(r*2).toFixed(1)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#c${i})"${title}/>`;
+        out+=`<circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${r.toFixed(1)}" fill="none" stroke="#0d1117" stroke-width="1.5" pointer-events="none"/>`;
+      }else{
+        out+=`<circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${n.type==="project"?"#58a6ff":"#f0883e"}" stroke="#0d1117" stroke-width="1"${title}/>`;
+      }
+    });
+    svg.innerHTML=`<defs>${defs}</defs><g transform="translate(${pan.x.toFixed(1)},${pan.y.toFixed(1)}) scale(${k.toFixed(3)})">${out}</g>`;
   }
   function tick(){
     for(let i=0;i<nodes.length;i++){
@@ -350,21 +369,30 @@ async function startGraph(){
       for(let j=i+1;j<nodes.length;j++){
         const b=nodes[j];let dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
         if(d2<1){dx=Math.random()-.5;dy=Math.random()-.5;d2=1;}
-        const d=Math.sqrt(d2),f=1400/d2,fx=dx/d*f,fy=dy/d*f;
+        const d=Math.sqrt(d2),f=5200/d2,fx=dx/d*f,fy=dy/d*f;
         a.vx-=fx;a.vy-=fy;b.vx+=fx;b.vy+=fy;
       }
-      a.vx-=a.x*0.007;a.vy-=a.y*0.007;
+      a.vx-=a.x*0.0055;a.vy-=a.y*0.0055;
     }
     for(const e of edges){
       const a=nodes[e.s],b=nodes[e.t];
-      const t=e.kind==="collab"?62:e.kind==="works"?78:145;
-      let dx=b.x-a.x,dy=b.y-a.y,d=Math.max(1,Math.hypot(dx,dy)),f=(d-t)*0.011*((d-t)>0?1:-0.6);
+      const t=e.kind==="collab"?95:e.kind==="works"?120:210;
+      let dx=b.x-a.x,dy=b.y-a.y,d=Math.max(1,Math.hypot(dx,dy)),f=(d-t)*0.008*((d-t)>0?1:-0.5);
       const fx=dx/d*f,fy=dy/d*f;a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy;
     }
-    for(const n of nodes){n.vx*=0.83;n.vy*=0.83;n.x+=Math.max(-16,Math.min(16,n.vx));n.y+=Math.max(-16,Math.min(16,n.vy));}
+    for(const n of nodes){n.vx*=0.84;n.vy*=0.84;n.x+=Math.max(-20,Math.min(20,n.vx));n.y+=Math.max(-20,Math.min(20,n.vy));}
+  }
+  for(let i=0;i<320;i++)tick();
+  function fit(){
+    const xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y);
+    const minx=Math.min(...xs)-40,maxx=Math.max(...xs)+40;
+    const miny=Math.min(...ys)-40,maxy=Math.max(...ys)+40;
+    k=Math.min(W/(maxx-minx),H/(maxy-miny));
+    k=Math.max(0.18,Math.min(2.4,k));
+    pan.x=W/2-((minx+maxx)/2)*k;
+    pan.y=H/2-((miny+maxy)/2)*k;
     draw();
   }
-  for(let i=0;i<260;i++)tick();
   svg.addEventListener("wheel",e=>{e.preventDefault();k=Math.max(0.25,Math.min(4,k*(e.deltaY<0?1.12:0.89)));draw();},{passive:false});
   let drag=false,last=null;
   svg.addEventListener("pointerdown",e=>{drag=true;last=[e.clientX,e.clientY];svg.setPointerCapture(e.pointerId);});
@@ -381,6 +409,7 @@ async function startGraph(){
   });
   let raf=null;
   io2.observe($("#graphbox"));
+  fit();
   msg.innerHTML=`${nodes.length} nodes &middot; ${edges.length} connections `+
     `(${edges.filter(e=>e.kind==="collab").length} developer pairs, ${edges.filter(e=>e.kind==="works").length} roles, ${edges.filter(e=>e.kind==="depends").length} dependencies)`;
 }
