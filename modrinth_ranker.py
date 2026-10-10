@@ -468,16 +468,6 @@ def emit(client, c, light=False):
 
     PUB.mkdir(exist_ok=True)
 
-    def write_if_changed(path, data):
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(data, "utf-8")
-        if path.exists() and path.stat().st_size == tmp.stat().st_size:
-            if path.read_bytes() == tmp.read_bytes():
-                tmp.unlink()
-                return False
-        tmp.replace(path)
-        return True
-
     if light:
         titles = {}
         slugs = {}
@@ -529,6 +519,11 @@ def emit(client, c, light=False):
 
     shard_out(projects, "projects", SHARD_SIZE, 250)
     shard_out(authors, "authors", SHARD_SIZE, 250)
+    by_id = {p["id"]: p for p in projects}
+    facets = emit_facets(c, projects)
+    boards = emit_facet_boards(c, by_id, facets)
+    meta["facets"] = len(facets)
+    meta["facet_boards"] = len(boards)
     meta["project_shards"] = math.ceil(len(projects) / SHARD_SIZE)
     (PUB / "teams.json").write_text(json.dumps(teams), "utf-8")
     titles = {p["id"]: p["title"] for p in projects}
@@ -627,6 +622,115 @@ def hourly(client, c):
     set_meta(c, "last_hourly", checked)
     c.commit()
     return {"top": len(top_ids), "slice": len(chunk), "deps": edges}
+
+
+def write_if_changed(path, data):
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(data, "utf-8")
+    if path.exists() and path.stat().st_size == tmp.stat().st_size:
+        if path.read_bytes() == tmp.read_bytes():
+            tmp.unlink()
+            return False
+    tmp.replace(path)
+    return True
+
+
+def facet_label(kind, val):
+    if kind == "type":
+        return val or "unknown"
+    if kind == "client_side":
+        return {"required": "client required", "optional": "client optional",
+                "unsupported": "client unsupported", "unknown": "client unknown"}.get(val, val or "unknown")
+    if kind == "server_side":
+        return {"required": "server required", "optional": "server optional",
+                "unsupported": "server unsupported", "unknown": "server unknown"}.get(val, val or "unknown")
+    if kind == "status":
+        return {"approved": "approved", "archived": "archived", "listed": "listed",
+                "private": "private", "draft": "draft"}.get(val, val or "unknown")
+    if kind == "license":
+        return val or "unknown"
+    return val or "unknown"
+
+
+def emit_facets(c, projects_by_dl):
+    facet_counts = {"category": {}, "type": {}, "client_side": {},
+                    "server_side": {}, "status": {}, "license": {}, "org": {}}
+    for r in c.execute(
+        """SELECT categories, additional_categories, project_type, client_side,
+             server_side, status, license, org FROM projects"""
+    ):
+        cats = jload(r[0], []) + jload(r[1], [])
+        for k in set(cats):
+            facet_counts["category"][k] = facet_counts["category"].get(k, 0) + 1
+        ptype = r[2] or "unknown"
+        facet_counts["type"][ptype] = facet_counts["type"].get(ptype, 0) + 1
+        cs = jload(r[3], None)
+        cs = (cs[0] if isinstance(cs, list) and cs else cs) or "unknown"
+        facet_counts["client_side"][cs] = facet_counts["client_side"].get(cs, 0) + 1
+        ss = jload(r[4], None)
+        ss = (ss[0] if isinstance(ss, list) and ss else ss) or "unknown"
+        facet_counts["server_side"][ss] = facet_counts["server_side"].get(ss, 0) + 1
+        status = r[5] or "unknown"
+        facet_counts["status"][status] = facet_counts["status"].get(status, 0) + 1
+        if (r[6] or "").strip():
+            lic = r[6].strip()
+            facet_counts["license"][lic] = facet_counts["license"].get(lic, 0) + 1
+        if (r[7] or "").strip():
+            og = r[7].strip()
+            facet_counts["org"][og] = facet_counts["org"].get(og, 0) + 1
+
+    facets = []
+    for kind, counts in facet_counts.items():
+        for val, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+            facets.append({
+                "kind": kind, "value": val,
+                "label": facet_label(kind, val), "count": n,
+            })
+    write_if_changed(PUB / "facets.json", json.dumps({"facets": facets}))
+    return facets
+
+
+def emit_facet_boards(c, projects_by_id, facets, per=100):
+    groups = {}
+    for r in c.execute(
+        """SELECT id, categories, additional_categories, project_type, client_side,
+             server_side, status, license, org FROM projects"""
+    ):
+        pid = r[0]
+        cats = set(jload(r[1], []) + jload(r[2], []))
+        ptype = r[3] or "unknown"
+        cs = jload(r[4], None)
+        cs = (cs[0] if isinstance(cs, list) and cs else cs) or "unknown"
+        ss = jload(r[5], None)
+        ss = (ss[0] if isinstance(ss, list) and ss else ss) or "unknown"
+        status = r[6] or "unknown"
+        license = (r[7] or "").strip() or None
+        org = (r[8] or "").strip() or None
+        keys = [("category", k) for k in cats]
+        keys.append(("type", ptype))
+        keys.append(("client_side", cs))
+        keys.append(("server_side", ss))
+        keys.append(("status", status))
+        if license:
+            keys.append(("license", license))
+        if org:
+            keys.append(("org", org))
+        for k in keys:
+            groups.setdefault(k, []).append(pid)
+
+    for old in PUB.glob("facets-*.json"):
+        old.unlink()
+    boards = []
+    for (kind, val), pids in groups.items():
+        pids.sort(key=lambda p: -(projects_by_id.get(p, {}).get("downloads") or 0))
+        top = [projects_by_id[p] for p in pids[:per] if p in projects_by_id]
+        safe = "".join(ch if ch.isalnum() else "_" for ch in str(val))[:60].strip("_") or "none"
+        name = "facets-%s-%s.json" % (kind, safe)
+        write_if_changed(PUB / name, json.dumps(top))
+        boards.append({"kind": kind, "value": val, "file": name,
+                       "members": len(pids), "shown": len(top)})
+    write_if_changed(PUB / "facets-index.json", json.dumps({"boards": boards}))
+    return boards
 
 
 def full(client, c):

@@ -22,6 +22,9 @@ nav{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
 nav button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:999px;padding:7px 15px;cursor:pointer;font-size:14px}
 nav button:hover{border-color:var(--acc)}
 nav button.on{background:var(--acc);color:#0d1117;border-color:var(--acc);font-weight:600}
+.facetbar{display:flex;gap:8px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+.facetbar select{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:14px;max-width:340px}
+.facetbar select:focus{outline:none;border-color:var(--acc)}
 .bar{display:flex;gap:10px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
 input[type=search]{flex:1;min-width:220px;background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:14px}
 input[type=search]:focus{outline:none;border-color:var(--acc)}
@@ -70,12 +73,22 @@ footer a{color:var(--mut);text-decoration:underline}
 <button data-k="projects" class="on">top projects</button>
 <button data-k="authors">top authors</button>
 <button data-k="deps">most depended on</button>
+<button data-k="facets">browse facets</button>
 <button data-k="graph">graph</button>
 </nav>
 
 <div class="bar">
 <input type="search" id="q" placeholder="filter&hellip;" autocomplete="off" spellcheck="false">
 <span class="count" id="count"></span>
+</div>
+
+<div id="facets" class="tab">
+  <div class="facetbar">
+    <select id="fk"></select>
+    <select id="fv"></select>
+    <span class="count" id="finfo"></span>
+  </div>
+  <div id="facets-host"></div>
 </div>
 
 <div id="projects" class="tab on"></div>
@@ -102,12 +115,19 @@ Raw data: <a href="projects-index.json">project shards</a> &middot; <a href="aut
 </main>
 <script>
 const $=s=>document.querySelector(s);
-const fmt=n=>n==null||n===""?"-":typeof n==="string"&&/^\d{4}-\d{2}-\d{2}/.test(n)?n.slice(0,10):Number(n).toLocaleString("en-US");
+const fmt=n=>{
+  if(n==null||n==="")return "-";
+  if(typeof n==="string"){
+    if(/^\d{4}-\d{2}-\d{2}/.test(n))return n.slice(0,10);
+    if(isNaN(Number(n)))return n;
+  }
+  return Number(n).toLocaleString("en-US");
+};
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const getJSON=async u=>{const r=await fetch(u,{cache:"force-cache"});if(!r.ok)throw new Error(r.status+" "+u);return r.json();};
 const TOP=250;
 
-function isNum(c){return /^(downloads|followers|versions|projects|depended_by|contributors|gallery|badges|downloads_per_project|color)$/.test(c);}
+function isNum(c){return /^(downloads|followers|versions|projects|depended_by|contributors|gallery|badges|downloads_per_project|color)$/.test(c)&&c!=="license";}
 function colLabel(c){return c.replace(/_/g," ").replace("downloads per project","downloads / project").replace("depended by","depended-on count");}
 
 function cell(o,c,max){
@@ -120,6 +140,7 @@ function cell(o,c,max){
     const w=Math.max(2,Math.min(100,(v||0)/m*100));
     return `<div class="bar-cell"><i style="width:${w}%"></i><span>${fmt(v)}</span></div>`;
   }
+  if(typeof v==="string"&&isNaN(Number(v)))return v;
   return fmt(v);
 }
 
@@ -204,15 +225,83 @@ async function loadMore(k){
 }
 
 let active="projects";
+let facetData=null, facetMeta=null, facetBoard=null, facetList=[], facetSort={c:"downloads",d:-1};
+const KIND_LABEL={category:"Category",type:"Project type",client_side:"Client side",server_side:"Server side",status:"Status",license:"License",org:"Organization"};
+
+function renderFacet(){
+  const host=$("#facets-host");
+  if(!facetList.length){host.innerHTML=`<div class="msg">no data</div>`;return;}
+  const cols=["title","downloads","followers","versions","license"];
+  const max={};for(const c of cols)max[c]=Math.max(1,...facetList.map(o=>Number(o[c])||0));
+  const list=facetList.slice().sort((a,b)=>{
+    const x=a[facetSort.c],y=b[facetSort.c];
+    if(typeof x==="number"&&typeof y==="number")return (x-y)*facetSort.d;
+    return String(x??"").localeCompare(String(y??""))*facetSort.d;
+  });
+  const q=($("#q").value||"").trim().toLowerCase();
+  const shown=q?list.filter(o=>Object.values(o).some(x=>typeof x==="string"&&x.toLowerCase().includes(q))):list;
+  const head=`<tr><th class="rank">#</th>`+cols.map(c=>
+    `<th class="${isNum(c)?"num ":""}" data-fc="${c}">${esc(colLabel(c))}${facetSort.c===c?(facetSort.d<0?" ↓":" ↑"):""}</th>`).join("")+"</tr>";
+  host.innerHTML=`<table><thead>${head}</thead><tbody>`+shown.map((o,i)=>
+    `<tr><td class="rank">${i+1}</td>`+cols.map(c=>`<td${isNum(c)?' class="num"':""}>${cell(o,c,max)}</td>`).join("")+"</tr>").join("")+"</tbody></table>"+
+    `<div class="msg">${shown.length.toLocaleString("en-US")} of ${facetList.length.toLocaleString("en-US")} in this facet</div>`;
+  host.querySelectorAll("th[data-fc]").forEach(th=>th.onclick=()=>{
+    const c=th.dataset.fc;
+    if(facetSort.c===c)facetSort.d*=-1;else{facetSort.c=c;facetSort.d=isNum(c)?-1:1;}
+    renderFacet();
+  });
+}
+
+async function loadFacet(){
+  const kind=$("#fk").value,val=$("#fv").value;
+  const board=facetData.boards.find(b=>b.kind===kind&&b.value===val);
+  $("#finfo").textContent=board?`${board.members.toLocaleString("en-US")} projects in this facet, showing the top ${board.shown}`:"";
+  if(!board){facetList=[];renderFacet();return;}
+  try{facetBoard=await getJSON(board.file);}
+  catch(e){facetList=[];$("#finfo").textContent="failed: "+e.message;renderFacet();return;}
+  facetList=facetBoard||[];
+  renderFacet();
+}
+
+function fillValues(){
+  const kind=$("#fk").value;
+  const vals=(facetMeta?.facets||[]).filter(f=>f.kind===kind);
+  const sel=$("#fv");
+  sel.innerHTML=vals.map(f=>`<option value="${esc(f.value)}">${esc(f.label)} (${f.count.toLocaleString("en-US")})</option>`).join("");
+  if(sel.options&&sel.options.length)sel.value=sel.options[0].value;
+}
+
+let facetLoaded=false;
+async function initFacets(){
+  if(facetLoaded)return;facetLoaded=true;
+  try{facetData=await getJSON("facets-index.json");}
+  catch(e){$("#facets-host").innerHTML=`<div class="msg">facets unavailable: ${esc(e.message)}</div>`;return;}
+  const meta=await getJSON("facets.json").catch(()=>({facets:[]}));
+  facetMeta=meta;
+  const counts={};
+  for(const f of meta.facets)counts[f.kind]=(counts[f.kind]||0)+1;
+  $("#fk").innerHTML=Object.keys(KIND_LABEL).filter(k=>counts[k]).map(k=>
+    `<option value="${k}">${KIND_LABEL[k]} (${counts[k]})</option>`).join("");
+  const fkSel=$("#fk");
+  if(fkSel.options&&fkSel.options.length)fkSel.value=fkSel.options[0].value;
+  fillValues();
+  $("#fk").onchange=()=>{fillValues();loadFacet();};
+  $("#fv").onchange=loadFacet;
+  await loadFacet();
+}
+
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
   b.classList.add("on");active=b.dataset.k;$("#"+active).classList.add("on");
   if(b.dataset.k==="graph")startGraph();
+  if(b.dataset.k==="facets")initFacets();
 });
 
 let t0=null;
-$("#q").addEventListener("input",()=>{clearTimeout(t0);t0=setTimeout(()=>render(active),120);});
+$("#q").addEventListener("input",()=>{clearTimeout(t0);t0=setTimeout(()=>{
+  if(active==="facets")renderFacet();else render(active);
+},120);});
 
 const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))loadMore(active);},{rootMargin:"900px"});
 
