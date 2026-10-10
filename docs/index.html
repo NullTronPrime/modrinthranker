@@ -4,192 +4,295 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>modrinthranker</title>
+<meta name="description" content="A census of every Modrinth project: leaderboards, most depended-on mods, author rankings and a dependency graph.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2358a6ff'/%3E%3Ctext x='16' y='23' font-size='20' font-family='sans-serif' font-weight='bold' text-anchor='middle' fill='%230d1117'%3EM%3C/text%3E%3C/svg%3E">
 <style>
-:root{--bg:#0d1117;--card:#161b22;--line:#30363d;--tx:#e6edf3;--mut:#8b949e;--acc:#58a6ff}
+:root{--bg:#0d1117;--card:#161b22;--line:#30363d;--tx:#e6edf3;--mut:#8b949e;--acc:#58a6ff;--ok:#3fb950}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,Segoe UI,sans-serif}
-main{max-width:1100px;margin:0 auto;padding:24px}
-h1{font-size:22px;margin:8px 0 2px}
-h1 small{color:var(--mut);font-weight:400}
-p.sub{color:var(--mut);margin:4px 0 20px}
-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
-th{color:var(--mut);font-weight:600;font-size:13px;position:sticky;top:0;background:var(--card)}
-tr:last-child td{border-bottom:0}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.55 system-ui,Segoe UI,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
+h1{font-size:22px;margin:6px 0 2px;display:flex;align-items:baseline;gap:8px}
+h1 small{color:var(--mut);font-weight:400;font-size:15px}
+p.sub{color:var(--mut);margin:4px 0 16px;font-size:14px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.card span{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+nav{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+nav button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:999px;padding:7px 15px;cursor:pointer;font-size:14px}
+nav button:hover{border-color:var(--acc)}
+nav button.on{background:var(--acc);color:#0d1117;border-color:var(--acc);font-weight:600}
+.bar{display:flex;gap:10px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+input[type=search]{flex:1;min-width:220px;background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:14px}
+input[type=search]:focus{outline:none;border-color:var(--acc)}
+.count{color:var(--mut);font-size:13px;font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;position:sticky;top:0;background:var(--card);z-index:2;cursor:pointer;user-select:none}
+th:hover{color:var(--tx)}
+tbody tr:hover{background:#1c2128}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.rank,th.rank{color:var(--mut);width:3.5em}
 a{color:var(--acc);text-decoration:none}
 a:hover{text-decoration:underline}
-.rank{color:var(--mut);width:3em}
+.bar-cell{background:linear-gradient(90deg,#1f6feb33,transparent);position:relative}
+.bar-cell i{position:absolute;left:0;top:0;bottom:0;background:#1f6feb22;z-index:0}
+.bar-cell span{position:relative;z-index:1}
 .tab{display:none}
 .tab.on{display:block}
-nav{display:flex;gap:8px;margin:16px 0;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5}
-nav button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:14px}
-nav button.on{background:var(--acc);color:#0d1117;border-color:var(--acc)}
-footer{color:var(--mut);font-size:12px;margin-top:28px}
-.wrap{border-radius:8px}
-#sentinel{height:40px}
-.loading{color:var(--mut);text-align:center;padding:14px;font-size:14px}
-#graphbox{background:var(--card);border:1px solid var(--line);border-radius:8px}
-#graphbox svg{display:block;width:100%;height:640px;cursor:grab}
-.legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--mut);font-size:13px;margin:10px 0}
-.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+#graphbox{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+#graphbox svg{display:block;width:100%;height:min(70vh,640px);cursor:grab}
+#graphbox svg:active{cursor:grabbing}
+.legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--mut);font-size:12.5px;margin:0 0 10px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.msg{color:var(--mut);text-align:center;padding:16px;font-size:13px}
+#sentinel{height:2px}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--mut);border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-left:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+footer{color:var(--mut);font-size:12px;margin-top:32px;border-top:1px solid var(--line);padding-top:14px}
+footer a{color:var(--mut);text-decoration:underline}
+@media(max-width:640px){th,td{padding:8px;font-size:13px}.hide-sm{display:none}}
 </style>
 </head>
 <body>
 <main>
 <h1>modrinthranker <small>Modrinth census &amp; leaderboards</small></h1>
-<p class="sub" id="sub">loading meta...</p>
+<p class="sub" id="sub">loading&hellip;</p>
+
+<div class="cards">
+<div class="card"><b id="c-proj">&mdash;</b><span>projects</span></div>
+<div class="card"><b id="c-auth">&mdash;</b><span>authors</span></div>
+<div class="card"><b id="c-dep">&mdash;</b><span>dependency edges</span></div>
+<div class="card"><b id="c-mod">&mdash;</b><span>mods ranked</span></div>
+</div>
+
 <nav>
-<button data-k="projects" class="on">projects</button>
-<button data-k="authors">authors</button>
-<button data-k="deps">most depended on mods</button>
+<button data-k="projects" class="on">top projects</button>
+<button data-k="authors">top authors</button>
+<button data-k="deps">most depended on</button>
 <button data-k="graph">graph</button>
 </nav>
+
+<div class="bar">
+<input type="search" id="q" placeholder="filter&hellip;" autocomplete="off" spellcheck="false">
+<span class="count" id="count"></span>
+</div>
+
 <div id="projects" class="tab on"></div>
 <div id="authors" class="tab"></div>
 <div id="deps" class="tab"></div>
 <div id="graph" class="tab">
   <div class="legend">
-    <span><i style="background:#58a6ff"></i>project</span>
+    <span><i style="background:#58a6ff"></i>project (size = downloads)</span>
     <span><i style="background:#f0883e"></i>developer</span>
     <span><i style="background:#3fb950"></i>depends on</span>
     <span><i style="background:#a371f7"></i>worked together</span>
-    <span>drag to pan, scroll to zoom, hover a node for detail</span>
+    <span style="color:var(--mut)">drag to pan, scroll to zoom, hover for detail</span>
   </div>
   <div id="graphbox"><svg id="gsvg"></svg></div>
-  <div class="loading" id="graph-msg">loading graph...</div>
+  <div class="msg" id="graph-msg">loading graph&hellip;</div>
 </div>
+
 <div id="sentinel"></div>
-<footer>Derived from data crawled from api.modrinth.com. Visitors never query the Modrinth API directly; this site only ships committed JSON snapshots refreshed by GitHub Actions.</footer>
+
+<footer>
+Crawled from <a href="https://docs.modrinth.com/api/">api.modrinth.com</a>. Visitors never query the Modrinth API directly &mdash; this site only ships committed JSON snapshots refreshed by GitHub Actions.
+Raw data: <a href="projects-index.json">project shards</a> &middot; <a href="authors-index.json">author shards</a> &middot; <a href="depended.json">dependents</a> &middot; <a href="meta.json">meta</a>.
+</footer>
 </main>
 <script>
 const $=s=>document.querySelector(s);
-const fmt=n=>n==null||n===""?"-":Number(n).toLocaleString("en-US");
+const fmt=n=>n==null||n===""?"-":typeof n==="string"&&/^\d{4}-\d{2}-\d{2}/.test(n)?n.slice(0,10):Number(n).toLocaleString("en-US");
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-function head(cols){return "<tr><th class='rank'>#</th>"+cols.map(c=>`<th${/num|dl|fb|n$/.test(c)?" class='num'":""}>${esc(c)}</th>`).join("")+"</tr>";}
-function rows(list,cols,base){return list.map((o,i)=>`<tr><td class="rank">${base+i+1}</td>`+cols.map(c=>`<td${/num|dl|fb|n$/.test(c)?" class='num'":""}>${cell(o,c)}</td>`).join("")+"</tr>").join("");}
-function cell(o,c){
+const getJSON=async u=>{const r=await fetch(u,{cache:"force-cache"});if(!r.ok)throw new Error(r.status+" "+u);return r.json();};
+const TOP=250;
+
+function isNum(c){return /^(downloads|followers|versions|projects|depended_by|contributors|gallery|badges|downloads_per_project|color)$/.test(c);}
+function colLabel(c){return c.replace(/_/g," ").replace("downloads per project","downloads / project").replace("depended by","depended-on count");}
+
+function cell(o,c,max){
   const v=o[c];
-  if(c==="from_title"||c==="to_title"){const s=o[c.replace("_title","_slug")];return s?`<a href="https://modrinth.com/project/${s}">${esc(v||s)}</a>`:esc(v);}
-  if(c==="title"){const s=o.slug;return s?`<a href="https://modrinth.com/project/${s}">${esc(v||s)}</a>`:esc(v);}
-  if(c==="username"){return esc(v);}
-  if(c==="collaborators"){return fmt((o.collaborator_count||0));}
+  if(c==="title"){const s=o.slug;return s?`<a href="https://modrinth.com/project/${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(v||s)}</a>`:esc(v);}
+  if(c==="username")return esc(v);
+  if(c==="depended_by")return `<b>${fmt(v)}</b>`;
+  if(c==="downloads"||c==="followers"){
+    const m=max[c]||1;
+    const w=Math.max(2,Math.min(100,(v||0)/m*100));
+    return `<div class="bar-cell"><i style="width:${w}%"></i><span>${fmt(v)}</span></div>`;
+  }
   return fmt(v);
 }
-function tableShell(id,cols){$("#"+id).innerHTML=`<div class="wrap"><table><thead>${head(cols)}</thead><tbody id="${id}-body"></tbody></table></div><div class="loading" id="${id}-msg">scroll to load more</div>`;}
 
-const TOP=250;
 const views={
-  projects:{cols:["title","downloads","followers","versions"],data:[],done:false,busy:false,
+  projects:{cols:["title","downloads","followers","versions","contributors","license"],data:[],shard:0,done:false,busy:false,
     async more(){
-      if(!this.data.length){this.data=await (await fetch("top-projects.json")).json();return;}
-      const idx=await (await fetch("projects-index.json")).json();
-      const n=this.shard||0,s=idx.shards[n];
+      if(!this.data.length){this.data=await getJSON("top-projects.json");return;}
+      const n=this.shard,idx=await getJSON("projects-index.json"),s=idx.shards[n];
       if(!s){this.done=true;return;}
-      const part=await (await fetch(s.file)).json();
+      const part=await getJSON(s.file);
       this.data=this.data.concat(n===0?part.slice(TOP):part);
       this.shard=n+1;
     }},
-  authors:{cols:["username","downloads","projects","followers","downloads_per_project"],data:[],done:false,busy:false,
+  authors:{cols:["username","downloads","projects","downloads_per_project","collaborator_count","joined"],data:[],shard:0,done:false,busy:false,
     async more(){
-      if(!this.data.length){this.data=await (await fetch("top-authors.json")).json();return;}
-      const idx=await (await fetch("authors-index.json")).json();
-      const n=this.shard||0,s=idx.shards[n];
+      if(!this.data.length){this.data=await getJSON("top-authors.json");return;}
+      const n=this.shard,idx=await getJSON("authors-index.json"),s=idx.shards[n];
       if(!s){this.done=true;return;}
-      const part=await (await fetch(s.file)).json();
+      const part=await getJSON(s.file);
       this.data=this.data.concat(n===0?part.slice(TOP):part);
       this.shard=n+1;
     }},
-  deps:{cols:["title","depended_by","downloads"],data:[],done:false,busy:false,
-    async more(){
-      if(!this.data.length){this.data=await (await fetch("depended.json")).json();this.done=true;}
-      else this.done=true;}}
+  deps:{cols:["title","depended_by","downloads","followers"],data:[],done:false,busy:false,
+    async more(){if(!this.data.length){this.data=await getJSON("depended.json");this.done=true;}else this.done=true;}}
 };
 
+const sort={projects:{c:"downloads",d:-1},authors:{c:"downloads",d:-1},deps:{c:"depended_by",d:-1}};
+
+function filtered(k){
+  const v=views[k],q=($("#q").value||"").trim().toLowerCase();
+  let list=v.data;
+  if(q)list=list.filter(o=>Object.values(o).some(x=>typeof x==="string"&&x.toLowerCase().includes(q)));
+  const s=sort[k];
+  if(s&&v.data.length){
+    const dir=s.d;
+    list=list.slice().sort((a,b)=>{
+      const x=a[s.c],y=b[s.c];
+      if(typeof x==="number"&&typeof y==="number")return (x-y)*dir;
+      return String(x??"").localeCompare(String(y??""))*dir;
+    });
+  }
+  return list;
+}
+
 function render(k){
-  const v=views[k],body=$(`#${k}-body`);
-  body.innerHTML=rows(v.data.slice(0,Math.max(v.data.length,1)),v.cols,0);
-  if(v.data.length===0)body.innerHTML="";
-  const msg=$(`#${k}-msg`);
-  msg.textContent=v.done?"end of list":(v.data.length?`showing ${fmt(v.data.length)} - scroll for more`:"scroll to load more");
+  const v=views[k],body=$("#"+k+"-body"),t=body&&body.tBodies[0];
+  if(!t)return;
+  const list=filtered(k);
+  const max={};
+  for(const c of v.cols)max[c]=Math.max(1,...list.slice(0,2000).map(o=>Number(o[c])||0));
+  t.innerHTML=list.map((o,i)=>`<tr><td class="rank">${i+1}</td>`+
+    v.cols.map(c=>`<td${isNum(c)?' class="num"':""}>${cell(o,c,max)}</td>`).join("")+"</tr>").join("");
+  $("#count").textContent=list.length.toLocaleString("en-US")+" shown"+(q0()?"":" of "+v.data.length.toLocaleString("en-US")+" loaded");
+  const msg=$("#"+k+"-msg");
+  if(msg)msg.innerHTML=v.done?"end of list":(v.busy?'loading <span class="spin"></span>':"scroll to load more");
+}
+function q0(){return ($("#q").value||"").trim().length>0;}
+
+function head(k){
+  const v=views[k],s=sort[k];
+  return "<tr><th class='rank'>#</th>"+v.cols.map(c=>
+    `<th class="${isNum(c)?"num ":""}" data-c="${c}" data-k="${k}">${esc(colLabel(c))}${s&&s.c===c?(s.d<0?" ↓":" ↑"):""}</th>`).join("")+"</tr>";
+}
+function mount(k){
+  $("#"+k).innerHTML=`<table><thead>${head(k)}</thead><tbody id="${k}-body"></tbody></table>`+
+    `<div class="msg" id="${k}-msg"></div>`;
+  bindHead(k);
+}
+function bindHead(k){
+  $("#"+k).querySelectorAll("th[data-c]").forEach(th=>th.onclick=()=>{
+    const s=sort[th.dataset.k];
+    if(s.c===th.dataset.c)s.d*=-1;else{s.c=th.dataset.c;s.d=isNum(th.dataset.c)?-1:1;}
+    $("#"+k+" thead").innerHTML=head(k);
+    bindHead(k);
+    render(k);
+  });
 }
 async function loadMore(k){
-  const v=views[k];if(v.busy||v.done)return;v.busy=true;
-  $(`#${k}-msg`).textContent="loading...";
-  try{await v.more();render(k);}catch(e){$(`#${k}-msg`).textContent="failed to load: "+e.message;}
-  v.busy=false;
+  const v=views[k];if(v.busy||v.done)return;v.busy=true;render(k);
+  try{await v.more();}catch(e){$("#"+k+"-msg").textContent="failed: "+e.message;}
+  v.busy=false;render(k);
 }
+
 let active="projects";
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on");active=b.dataset.k;$("#"+active).classList.add("on");
+  if(b.dataset.k==="graph")startGraph();
+});
+
+let t0=null;
+$("#q").addEventListener("input",()=>{clearTimeout(t0);t0=setTimeout(()=>render(active),120);});
+
+const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))loadMore(active);},{rootMargin:"900px"});
+
 let graphStarted=false;
 async function startGraph(){
   if(graphStarted)return;graphStarted=true;
-  const box=$("#graphbox"),svg=$("#gsvg"),msg=$("#graph-msg");
+  const svg=$("#gsvg"),msg=$("#graph-msg");
   let g;
-  try{g=await (await fetch("graph.json")).json();}catch(e){msg.textContent="graph unavailable: "+e.message;return;}
-  const NS="http://www.w3.org/2000/svg";
-  const nodes=g.nodes.map((n,i)=>({...n,x:Math.cos(i*2.399)*180+Math.random()*40,y:Math.sin(i*2.399)*180+Math.random()*40,vx:0,vy:0}));
+  try{g=await getJSON("graph.json");}catch(e){msg.textContent="graph unavailable: "+e.message;return;}
+  const W=1000,H=640;
+  const nodes=g.nodes.map((n,i)=>({...n,x:Math.cos(i*2.399)*190,y:Math.sin(i*2.399)*190,vx:0,vy:0}));
   const idx=new Map(nodes.map((n,i)=>[n.id,i]));
-  const edges=g.edges.filter(e=>idx.has(e.source)&&idx.has(e.target)).map(e=>({s:idx.get(e.source),t:idx.get(e.target),kind:e.kind}));
-  let W=1000,H=640,pan={x:0,y:0},k=1;
-  const line=(a,b,k)=>`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${k==="depends"?"#3fb950":k==="collab"?"#a371f7":"#8b949e"}" stroke-width="${k==="collab"?1.4:1}" stroke-opacity="${k==="works"?0.35:0.75}"/>`;
+  const edges=g.edges.filter(e=>idx.has(e.source)&&idx.has(e.target))
+    .map(e=>({s:idx.get(e.source),t:idx.get(e.target),kind:e.kind}));
+  let pan={x:0,y:0},k=1;
+  const col={depends:"#3fb950",collab:"#a371f7",works:"#8b949e"};
   function draw(){
     let out="";
-    for(const e of edges)out+=line(nodes[e.s],nodes[e.t],e.kind);
-    for(const n of nodes){
-      const r=n.type==="project"?Math.min(16,4+Math.sqrt((n.downloads||1)/2e5))*.7+3:4.5;
-      out+=`<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="${n.type==="project"?"#58a6ff":"#f0883e"}" stroke="#0d1117" stroke-width="1"><title>${esc(n.label)}${n.depended_by?" - "+n.depended_by+" depend on it":""}</title></circle>`;
+    for(const e of edges){
+      const a=nodes[e.s],b=nodes[e.t];
+      out+=`<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${col[e.kind]}" stroke-width="${e.kind==="collab"?1.3:1}" stroke-opacity="${e.kind==="works"?0.3:0.7}"/>`;
     }
-    svg.innerHTML=`<g transform="translate(${pan.x},${pan.y}) scale(${k})">${out}</g>`;
+    for(const n of nodes){
+      const r=n.type==="project"?3+Math.min(13,Math.sqrt((n.downloads||1)/250000)):4.5;
+      out+=`<circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${n.type==="project"?"#58a6ff":"#f0883e"}" stroke="#0d1117" stroke-width="1"><title>${esc(n.label)}${n.depended_by?" — "+fmt(n.depended_by)+" depend on it":""}${n.downloads?" — "+fmt(n.downloads)+" downloads":""}</title></circle>`;
+    }
+    svg.innerHTML=`<g transform="translate(${pan.x.toFixed(1)},${pan.y.toFixed(1)}) scale(${k.toFixed(3)})">${out}</g>`;
   }
   function tick(){
     for(let i=0;i<nodes.length;i++){
       const a=nodes[i];
       for(let j=i+1;j<nodes.length;j++){
-        const b=nodes[j];let dx=b.x-a.x,dy=b.y-a.y;let d2=dx*dx+dy*dy;
+        const b=nodes[j];let dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
         if(d2<1){dx=Math.random()-.5;dy=Math.random()-.5;d2=1;}
-        const d=Math.sqrt(d2),f=900/d2;
-        const fx=dx/d*f,fy=dy/d*f;a.vx-=fx;a.vy-=fy;b.vx+=fx;b.vy+=fy;
+        const d=Math.sqrt(d2),f=1400/d2,fx=dx/d*f,fy=dy/d*f;
+        a.vx-=fx;a.vy-=fy;b.vx+=fx;b.vy+=fy;
       }
-      a.vx-=a.x*0.006;a.vy-=a.y*0.006;
+      a.vx-=a.x*0.007;a.vy-=a.y*0.007;
     }
     for(const e of edges){
       const a=nodes[e.s],b=nodes[e.t];
-      const target=e.kind==="collab"?70:e.kind==="works"?85:150;
-      let dx=b.x-a.x,dy=b.y-a.y,d=Math.max(1,Math.hypot(dx,dy)),f=(d-target)*0.012*((d-target)>0?1:-0.6);
+      const t=e.kind==="collab"?62:e.kind==="works"?78:145;
+      let dx=b.x-a.x,dy=b.y-a.y,d=Math.max(1,Math.hypot(dx,dy)),f=(d-t)*0.011*((d-t)>0?1:-0.6);
       const fx=dx/d*f,fy=dy/d*f;a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy;
     }
-    for(const n of nodes){n.vx*=0.82;n.vy*=0.82;n.x+=Math.max(-18,Math.min(18,n.vx));n.y+=Math.max(-18,Math.min(18,n.vy));}
+    for(const n of nodes){n.vx*=0.83;n.vy*=0.83;n.x+=Math.max(-16,Math.min(16,n.vx));n.y+=Math.max(-16,Math.min(16,n.vy));}
     draw();
   }
-  for(let i=0;i<220;i++)tick();
-  let raf=null;
+  for(let i=0;i<260;i++)tick();
   svg.addEventListener("wheel",e=>{e.preventDefault();k=Math.max(0.25,Math.min(4,k*(e.deltaY<0?1.12:0.89)));draw();},{passive:false});
-  let dragging=false,last=null;
-  svg.addEventListener("pointerdown",e=>{dragging=true;last=[e.clientX,e.clientY];svg.setPointerCapture(e.pointerId);});
+  let drag=false,last=null;
+  svg.addEventListener("pointerdown",e=>{drag=true;last=[e.clientX,e.clientY];svg.setPointerCapture(e.pointerId);});
   svg.addEventListener("pointermove",e=>{
-    if(!dragging)return;
+    if(!drag)return;
     const r=svg.getBoundingClientRect();
     pan.x+=(e.clientX-last[0])*W/r.width;pan.y+=(e.clientY-last[1])*H/r.height;
     last=[e.clientX,e.clientY];draw();
   });
-  svg.addEventListener("pointerup",()=>dragging=false);
-  const io2=new IntersectionObserver(es=>{if(es.some(x=>x.isIntersecting)&&!raf)raf=setInterval(tick,40);else{clearInterval(raf);raf=null;}});
-  io2.observe(box);
-  msg.textContent=`${nodes.length} nodes, ${edges.length} edges (blue = project, orange = developer, green = dependency, purple = shared project)`;
+  svg.addEventListener("pointerup",()=>drag=false);
+  const io2=new IntersectionObserver(es=>{
+    if(es.some(x=>x.isIntersecting)&&!raf)raf=setInterval(tick,45);
+    else if(raf){clearInterval(raf);raf=null;}
+  });
+  let raf=null;
+  io2.observe($("#graphbox"));
+  msg.innerHTML=`${nodes.length} nodes &middot; ${edges.length} connections `+
+    `(${edges.filter(e=>e.kind==="collab").length} developer pairs, ${edges.filter(e=>e.kind==="works").length} roles, ${edges.filter(e=>e.kind==="depends").length} dependencies)`;
 }
-document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>{if(b.dataset.k==="graph")startGraph();}));
-document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
-  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
-  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
-  b.classList.add("on");active=b.dataset.k;$("#"+active).classList.add("on");
-  if(views[active]&&!$(`#${active}-body`)){tableShell(active,views[active].cols);loadMore(active);}
-});
-const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))loadMore(active);},{rootMargin:"600px"});
+
 window.addEventListener("DOMContentLoaded",async()=>{
-  const meta=await (await fetch("meta.json")).json();
-  $("#sub").textContent=`${fmt(meta.projects)} projects, ${fmt(meta.authors)} authors, ${fmt(meta.depended||meta.deps)} mods ranked by dependents, updated ${new Date(meta.generated*1000).toUTCString()}`;
-  for(const k of Object.keys(views)){tableShell(k,views[k].cols);await loadMore(k);}
+  for(const k of Object.keys(views))mount(k);
+  const meta=await getJSON("meta.json").catch(()=>null);
+  if(meta){
+    $("#c-proj").textContent=fmt(meta.projects);
+    $("#c-auth").textContent=fmt(meta.authors);
+    $("#c-dep").textContent=fmt(meta.deps);
+    $("#c-mod").textContent=fmt(meta.depended||meta.deps);
+    $("#sub").textContent=`Census of every public Modrinth project · updated ${new Date(meta.generated*1000).toUTCString()}`;
+  }
+  await Promise.all(Object.keys(views).map(k=>loadMore(k)));
   io.observe($("#sentinel"));
 });
 </script>
