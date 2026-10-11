@@ -135,8 +135,14 @@ const fmtDate=n=>{
   return isNaN(d.getTime())?esc(String(n)).slice(0,10):d.toISOString().slice(0,10);
 };
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-const getJSON=async u=>{const r=await fetch(u,{cache:"force-cache"});if(!r.ok)throw new Error(r.status+" "+u);return r.json();};
+const getJSON=async u=>{
+  const url=u+(u.includes("?")?"&":"?")+"v="+BUILD;
+  const r=await fetch(url,{cache:"default"});
+  if(!r.ok)throw new Error(r.status+" "+u);
+  return r.json();
+};
 const TOP=250;
+let BUILD="0";
 
 function isNum(c){return /^(downloads|followers|versions|projects|depended_by|contributors|gallery|badges|downloads_per_project|color)$/.test(c)&&c!=="license";}
 function colLabel(c){return c.replace(/_/g," ").replace("downloads per project","downloads / project").replace("depended by","depended-on count");}
@@ -289,10 +295,27 @@ function renderFacet(){
 async function loadFacet(){
   const kind=$("#fk").value,val=$("#fv").value;
   const board=facetData.boards.find(b=>b.kind===kind&&b.value===val);
-  $("#finfo").textContent=board?`${board.members.toLocaleString("en-US")} projects in this facet, showing the top ${board.shown}`:"";
+  $("#finfo").textContent=board?`${board.members.toLocaleString("en-US")} projects in this facet, showing ${Math.min(board.shown,board.members).toLocaleString("en-US")}`:"";
   if(!board){facetList=[];renderFacet();return;}
   try{facetBoard=await getJSON(board.file);}
-  catch(e){facetList=[];$("#finfo").textContent="failed: "+e.message;renderFacet();return;}
+  catch(e){
+    const stale=e.message.indexOf("404")>=0;
+    $("#finfo").textContent=stale
+      ?"This list was rebuilt. Reloading the latest index..."
+      :"failed: "+esc(e.message);
+    facetList=[];renderFacet();
+    if(stale){
+      BUILD=String(Date.now());
+      try{
+        facetData=await getJSON("facets-index.json");
+        const again=facetData.boards.find(b=>b.kind===kind&&b.value===val);
+        if(again){facetBoard=await getJSON(again.file);facetList=facetBoard||[];
+          $("#finfo").textContent=`${again.members.toLocaleString("en-US")} projects in this facet, showing ${Math.min(again.shown,again.members).toLocaleString("en-US")}`;
+          renderFacet();return;}
+      }catch(e2){}
+    }
+    return;
+  }
   facetList=facetBoard||[];
   renderFacet();
 }
@@ -510,8 +533,14 @@ async function startGraph(){
 
 window.addEventListener("DOMContentLoaded",async()=>{
   for(const k of Object.keys(views))mount(k);
-  const meta=await getJSON("meta.json").catch(()=>null);
+  const meta=await (async()=>{
+    try{
+      const r=await fetch("meta.json?v="+Date.now(),{cache:"no-store"});
+      return r.ok?await r.json():null;
+    }catch(e){return null;}
+  })();
   if(meta){
+    BUILD=String(meta.generated||"0");
     $("#c-proj").textContent=fmt(meta.projects);
     $("#c-auth").textContent=fmt(meta.authors);
     $("#c-dep").textContent=fmt(meta.deps);
