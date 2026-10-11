@@ -1,5 +1,5 @@
 {
- "generated": 1791708391,
+ "generated": 1791711505,
  "projects": 162536,
  "authors": 70113,
  "users": 70113,
@@ -7,9 +7,9 @@
  "deps": 28639,
  "modrinth_statistics": {
   "projects": 162559,
-  "versions": 1470533,
-  "authors": 70122,
-  "files": 1595587
+  "versions": 1470612,
+  "authors": 70124,
+  "files": 1595701
  },
  "facets": 5664,
  "facet_boards": 5664,
