@@ -37,6 +37,7 @@ jobs:
             echo "no census database cached yet, census-weekly builds it; nothing to do"
           else
             python modrinth_ranker.py --emit
+            python modrinth_ranker.py --snapshot
           fi
       - name: compress
         run: gzip -9 -f data/ranks.sqlite || true

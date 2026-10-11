@@ -22,7 +22,9 @@ jobs:
           MR_UA: modrinthranker/1.0 (https://github.com/NullTronPrime/modrinthranker; contact via repo issues)
           MR_RPM: "240"
           MR_TOP_N: "5000"
-        run: python modrinth_ranker.py --full
+        run: |
+          python modrinth_ranker.py --full
+          python modrinth_ranker.py --snapshot
       - name: compress
         run: gzip -9 -f data/ranks.sqlite
       - name: save census database
