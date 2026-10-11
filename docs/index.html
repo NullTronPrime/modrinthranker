@@ -6,11 +6,12 @@
 <title>modrinthranker</title>
 <meta name="description" content="A census of every Modrinth project: leaderboards, most depended-on mods, author rankings and a dependency graph.">
 <meta name="theme-color" content="#121214">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='16' fill='%231bd96a'/%3E%3Ctext x='16' y='23' font-size='19' font-family='sans-serif' font-weight='bold' text-anchor='middle' fill='%230c0c0d'%3EM%3C/text%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,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">
 <style>
+@font-face{font-display:swap;font-family:Inter;font-style:normal;font-weight:400;src:url(https://cdn.modrinth.com/fonts/inter/Inter-Regular.woff2?v=3.19) format("woff2"),url(https://cdn.modrinth.com/fonts/inter/Inter-Regular.woff?v=3.19) format("woff")}
+@font-face{font-display:swap;font-family:Inter;font-style:normal;font-weight:500;src:url(https://cdn.modrinth.com/fonts/inter/Inter-Medium.woff2?v=3.19) format("woff2"),url(https://cdn.modrinth.com/fonts/inter/Inter-Medium.woff?v=3.19) format("woff")}
+@font-face{font-display:swap;font-family:Inter;font-style:normal;font-weight:600;src:url(https://cdn.modrinth.com/fonts/inter/Inter-SemiBold.woff2?v=3.19) format("woff2"),url(https://cdn.modrinth.com/fonts/inter/Inter-SemiBold.woff?v=3.19) format("woff")}
+@font-face{font-display:swap;font-family:Inter;font-style:normal;font-weight:700;src:url(https://cdn.modrinth.com/fonts/inter/Inter-Bold.woff2?v=3.19) format("woff2"),url(https://cdn.modrinth.com/fonts/inter/Inter-Bold.woff?v=3.19) format("woff")}
 :root{--bg:#121214;--card:#1a1a1d;--card2:#202024;--line:#2b2b30;--line2:#3a3a40;--tx:#e0e0e4;--mut:#8a8a93;--acc:#1bd96a;--acc-dk:#0c0c0d;--danger:#ff5c5c}
 *{box-sizing:border-box}
 html{color-scheme:dark}
@@ -26,6 +27,7 @@ p.sub{color:var(--mut);margin:4px 0 18px;font-size:14px}
 .card b{display:block;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
 .card span{color:var(--mut);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;font-weight:500}
 nav{display:flex;gap:8px;margin:0 0 16px;flex-wrap:wrap}
+nav.mainnav{position:sticky;top:0;z-index:30;background:var(--bg);padding:12px 0 10px;margin:0 0 16px;border-bottom:1px solid var(--line)}
 nav button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:999px;padding:7px 16px;cursor:pointer;font:500 14px Inter,system-ui,sans-serif;transition:border-color .15s,background .15s}
 nav button:hover{border-color:var(--line2);background:var(--card2)}
 nav button.on{background:var(--acc);color:var(--acc-dk);border-color:var(--acc);font-weight:600}
@@ -51,7 +53,7 @@ input[type=search]:focus{outline:none;border-color:var(--acc)}
 table{width:100%;border-collapse:separate;border-spacing:0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
 th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line)}
 tr:last-child td{border-bottom:none}
-th{color:var(--mut);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;position:sticky;top:0;background:var(--card);z-index:2;cursor:pointer;user-select:none}
+th{color:var(--mut);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;position:sticky;top:var(--navh,56px);background:var(--card);z-index:2;cursor:pointer;user-select:none}
 th:hover{color:var(--tx)}
 tbody tr:hover{background:var(--card2)}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
@@ -96,7 +98,7 @@ footer a{color:var(--mut);text-decoration:underline}
 </head>
 <body>
 <main>
-<h1><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="#1bd96a"/><path d="M10 22V10h3l5 7 5-7h3v12h-3.2v-7.4L17 20h-2l-2.8-5.4V22z" fill="#0c0c0d"/></svg> modrinthranker <small>Modrinth census &amp; leaderboards</small></h1>
+<h1><img class="mark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH6ggYFzs40w9EpgAAC21JREFUWMONV3t4VdWV/+199jn3kdzce/O8SW4wASJFiyBKxX5aRh2nfh0BLeBMATP4ANGpQFHU2naszPRTpHy1rUXqIA4gkapIG9qZ6Yh+TBRfdESgyCOkIbm5N6+b132e195r/shNFG2dWeevfc4+e/322r/1W2sz/B+2Y/h/UK+HtYPZ9un9bmZej5uZZZM7m4FNFoyFoiK49XeZM/+4PDQLRAoARXWmhb/qv+jjPjcj7wxf+YXri7/04enBdzBJD2mt2Y4rW9KnloxK85ZBma9PKVNzSUFBIci9qBJF8Us85dhU9XXcFX8FOtOu63ZGHj9hxVsa9NJXXh796L2Em5Lryr72/wNARPh2Twv63XTtO7nzqxNu+u4eJx0xyQGBwABQ4fFzbhdxcbLRKMXrAI6ZcdTpwapTVm8DgdYOuplvJdyRHVP1smdXJ17uerZ6CRhjF/jjnx7sHv4QV3dsBUCzj+bjL5wwe77/JzsZMckEQQKQ0BihhOuICL+q1PwJD/hZD+P4Ts9+HJm8lqVU/ks22TDJRoeTrDxhxh/5yOzepQFzp7Y9jp3D718AYALOj5OtOJA+iWlGxTVtdnJrhzM0wyYJBgIAFHMDYc0XK+Hew5Wi+FSAe87q4DHBtCMEsgkKDXqp981c26/OWH0L0sociygIBtNQr5eeutiouP+9fMcbTaGr8GD5jZ8AICI0xV9CMTeuOGX1v/AnZ3CGJAUCwcM0VIlALKqHmieJUPM1/vqTH5kJubHqGxfsZF3PPgS5nw2rzIyEM9oUc4f+vs9N1drkggHQwNFglJ261BO5a0jm3n0pejcYY2MA7u/ZBx/Ta4+ZiRfO2P03OiRBIBRzA/V66aFGo+IHz1Qvfnv78LtYWfrVL2T104NvYG3p9ey+npeubbf7N3Y4yXlZZYEB0JmGRqPyv2d5o8vzZHc/U70cYn3Pa9gSuZUtij2/utMZvNEmBwChiBuYapTtv8QTWZtRVuyz5MlLBz5Nx9bBQ552eyAqoWyL3Ni6shuwlogk3NYZ3poVgrGn2+zehVllwSaJmJOcF+D6uo3lCx4yepoVuzP+Igxoc49Z8f2dznCEFc5sqlHx5kxPdEVGWbFttd8CAHw70QwfN4IZZV6WkvmpSZmpt8idraAuK+ae441G5SqHZM/WmtsBAPfEd6KIexpOWLHnz9q917mFyNaKUO9s70W3WeS+xYiI/W3XLzaftvoesMgBAET1UOfl3rplOWUf3hW9AwCwMr4TPq7XtdsDTyRlemFGmUU5ZTOHZEETfLjMG31qb/Teh+/r2YVna/4BRITl8W3wM+Nrx62uvd3OUDVA8DAd0z3Vz70Svf9evqZ376WjMneLRRYIEsVcoEaU7Nl2YtnhKhEAAKxK/Bv8XNScs3t/3Gb3LIs5yeJhmWE22SBIcBCKud4jGDvGjv4NUMgcxhgiIoDnau5srdQCL/i5AEHBJAsDMnXDhr7mS8WAm5o3ojL1Y3kOBDVPR7Uo2bNqxk5sjizGqvgOeJkWabN7N7fb/bdlVB7sU3IkwFElSnobPZUbXqxd3TzFqMDGysUTXNkSWY7ReBa1eui1ATl6R1aZ1QCQVWbDsMou4APu6KyMymkMCjoDAsw4/MPyBac5gJXx7TAYrzxn925qt3uXplUWDAoEFz4uqEYEY5ON8n2NRtX9z0Samh8bePUC55/ILcfC4iuOeZk4qIGBgZBVeZ50U1cIi+zZklwQFLxMR6nwn7wt/nM11ajA9mQL5ofm3dth9zWlVa7wK6GIe9Cgl7821ah6bIpeeeac0+eWFo7rz9m22pX4uOMxN8j9f/BwcXtOWXBJIqVy9YIxmjwWfgUf0xwf005F9RAAwnT/NCgo04FbONexDJmkl70xzVO9JqPMxAMV8z/n8NepIxeMbymZgxoRhsbYgI/pKgeTEwgOuQ2CIEsACYDAGUzOWJIRsL32HjR1/wKC8UP97uhATpkVnypZ3T+LrOi5O7Ft4k1r5mNcWzQd63t3hl9NvTtnRGbnFHHPsUGZ+S0AGIyDMTYqGHcA8oxth0pEoYaPLwwiRVQYG0zDVf7GD9vtvt8L8OUSCg45GJHZa1Ylftnokjw7pg/P44P8ObF5sGXZsMzckyVrZkaZ/ogIHZjrnfpmbffPcxIKnEDjkRz3xwGkxweSpMchWeaQxJ6Rt/B69jjez7XV6YzrGvuE+WmVm9LlDGwIcG9wZXwb7gpfxw/nTy/tdpM/Oe/0X93njvizKg9TWZcPysxFBIKlHFjkBB1yxXgRIlBaKKgOBppFIJhkG3mypuWUdeCd3OngTM+kRSetrjUDMjXTLogUA5BReXQ6AysAQDB+dE3v81empXlzUqbCVNhMgHtVqVbcXKoVtffLFHrlEALcV2EqWwMIDAwC/LwQjH+oMTaLSMEkGyMyM7NaD837oxVbk5Tp+aMyq6uJRmQMAAOQVjnRbvfcxRhjpnKgoCbKr5cZqBHh/ZONyk0DMmUTFNaXzde2DLbMtsgGA0FjHEXc08HD3P+Rj+mSQHDJRVKmbj5jJfadd/q/OSwzOhXOTDCOSi2QK+Ied5wjebJYVplQBRJTYV5EBD+o08sfHZKZoZ3RNXDIxb7Ue182lf3XCmNl3sd0FdT8R3mQ+1oD3Ns1XuuGZCbU6w6XuTSWegxAkPvMOlHW8iVP7dKoKG32Mx30aeKCwMFQxA1Ui/DZWlH68IA7enZByRW4o/un2HvwQfS5w7eOyEx0nIQ+bnQGmOc3fFftmuN+brToTMNnGepjOqpF6PgUI7LuEk90OUC/ieplj9bo4QNeJsDBEOBeqtBKEjV6+NeNRvUPGvSK216u23BomqcGy4LXISlTWHLDk3MHZerOPFkFLREo4b6DTaHrT7Bbup6AYNo15+zeff3uaOU410u4X9XpZTsrRWjjx1bs/IayhVgamodFXU9CMG1ajzv0zw5JVaYFPijmvtcjInim3x21m+senNCGxbEn4GVGXYfd91y3m7xprBwD5VpJ/8Wemr9zyD0k/NyDe8NfP/xPA3t3ZFTukZyywQC4cLlDrgEoc7JRgaWheQCAXdHVKHr/8jOrL9rQFNaK3G5n0N0dXf85Nby160cwmIh2OQNP9brDNznkAgB8zECZVrxnQeArrf+Z+XCsJVvctQkGE5M6nL6dcXfor2QBqZ8ZqBLBf68SoR/uq/vukUf7duOJSBO+yNYkfombA19hzw7/bk6fO/J4nztyU57GNqUxjmpR+s5kvWqpTW7nvknfGwPwrwO/xavZI/AxY27MTe7od0enj7F1rI8L8+LOsFa0vVwL7J/jazz9R6tT7oo+8Dnn3+z6FwS4z4g5yfuGZGb9sErXOSTBAHAwVIhg2yRRcXeWrNZvFM3CdyqWfNKWP9S7A/+VPYaoKL0+4Q4/k5Sp6W7hZwDwMh0lmr/LYNrvi7j3qJ95+jXGRxlYjoMdBZAHgHq9yvN27uSvEu7QQppITQ3lWqCtRpStPWvH/2N+8VXYUr1yQtgm7Pt9u3AgcwST9Iq5fe7wpkE3fa1J9gVzOBgMJuBhussZc4u4Z7RKhBcT6G0NHKetGMpF8OFuJ/mkTQ58zECpFng3IsKPnLG7W5eUXIsfVa2YWI99NoxpmcKi2FMo0fzRfndk3ZBML88os8oht3A1G8+T8VT1oN6o+u6ozD75hyk/w03nvwfO+MJuJ/mKJDlSKgIvVorQT1My1/mTyEp82Tv5An+fAzBut8c2o0qEtNN299WDMn17RuVvsMhuMMnhqnBpIQAaGCIivGdD2aKm3aNvqrGmBbUW2fcJaAcvNmpbB2Va7q576M/6+YsAxm1F9xaEtYDWbvdMz5G5MKPyV+aUVS8h6wGUAODF3PdWrShbaJMzzBkHA4MGxlwoapn0+Beu/7+f+cBuyzEcpAAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyNi0wOC0yNFQyMzo1OTo1NSswMDowMLz/858AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjYtMDgtMjRUMjM6NTk6NTUrMDA6MDDNoksjAAAAIHRFWHRzb2Z0d2FyZQBodHRwczovL2ltYWdlbWFnaWNrLm9yZ7zPHZ0AAAAYdEVYdFRodW1iOjpEb2N1bWVudDo6UGFnZXMAMaf/uy8AAAAYdEVYdFRodW1iOjpJbWFnZTo6SGVpZ2h0ADE5MkBdcVUAAAAXdEVYdFRodW1iOjpJbWFnZTo6V2lkdGgAMTky06whCAAAABl0RVh0VGh1bWI6Ok1pbWV0eXBlAGltYWdlL3BuZz+yVk4AAAAXdEVYdFRodW1iOjpNVGltZQAxNzg3NjE1OTk1cagAzQAAAA90RVh0VGh1bWI6OlNpemUAMEJClKI+7AAAAFZ0RVh0VGh1bWI6OlVSSQBmaWxlOi8vL21udGxvZy9mYXZpY29ucy8yMDI2LTA4LTI0L2M3ZDhkZjI3YjEzNTVkM2YxYjliMTVlNGYwOWQwZTlhLmljby5wbmeeWWI9AAAAAElFTkSuQmCC" alt="Modrinth" width="30" height="30"> modrinthranker <small>Modrinth census &amp; leaderboards</small></h1>
 <p class="sub" id="sub">loading&hellip;</p>
 
 <div class="cards">
@@ -106,7 +108,7 @@ footer a{color:var(--mut);text-decoration:underline}
 <div class="card" title="Distinct projects that at least one other project depends on"><b id="c-mod">&mdash;</b><span>depended-upon mods</span></div>
 </div>
 
-<nav>
+<nav class="mainnav">
 <button data-k="projects" class="on">top projects</button>
 <button data-k="authors">top authors</button>
 <button data-k="deps">most depended on</button>
@@ -811,7 +813,8 @@ async function startGraph(){
       a.x+=a.vx;a.y+=a.vy;
     }
   }
-  for(let i=0;i<300;i++)tick();
+  const warm=Math.min(300,Math.max(40,Math.round(5e7/(nodes.length*nodes.length||1))));
+  for(let i=0;i<warm;i++)tick();
   paint();
 
   function fit(){
@@ -843,7 +846,8 @@ async function startGraph(){
   const stop=()=>{drag=false;};
   svg.addEventListener("pointerup",stop);
   svg.addEventListener("pointercancel",stop);
-  const relax=()=>{for(let i=0;i<25;i++)tick();paint();};
+  const relaxN=nodes.length>1200?6:nodes.length>600?12:25;
+  const relax=()=>{for(let i=0;i<relaxN;i++)tick();paint();};
   const relaxer=setInterval(relax,900);
 
   msg.textContent=nodes.length+" nodes \· "+edges.length+" connections ("
@@ -855,6 +859,9 @@ async function startGraph(){
 }
 
 window.addEventListener("DOMContentLoaded",async()=>{
+  const nn=document.querySelector("nav.mainnav");
+  const syncNav=()=>{if(nn)document.documentElement.style.setProperty("--navh",nn.offsetHeight+"px");};
+  window.addEventListener("resize",syncNav);syncNav();
   for(const k of Object.keys(views))mount(k);
   const meta=await (async()=>{
     try{

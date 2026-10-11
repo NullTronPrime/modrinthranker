@@ -324,7 +324,9 @@ def crawl_deps(client, c, top_k, ids=None):
     return edges
 
 
-def build_graph(c, projects, inbound, limit=140):
+def build_graph(c, projects, inbound, limit=None):
+    if limit is None:
+        limit = int(os.environ.get("MR_GRAPH_LIMIT", "500"))
     sel = projects[:limit]
     ids = {p["id"] for p in sel}
     nodes = []
