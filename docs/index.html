@@ -299,20 +299,32 @@ function renderCombo(){
   const rows=facetOptions();
   const hit=q?rows.filter(f=>String(f.label).toLowerCase().includes(q)||String(f.value).toLowerCase().includes(q)):rows;
   if(!hit.length){list.innerHTML=`<div class="empty">no facet matches "${esc(q)}"</div>`;return;}
-  const cap=300,shown=hit.slice(0,cap);
-  list.innerHTML=shown.map(f=>
+  list.innerHTML=hit.map(f=>
     `<div data-v="${esc(f.value)}" class="${f.value===facetValue?"sel":""}">`+
-    `<span>${esc(f.label)}</span><span class="n">${f.count.toLocaleString("en-US")}${f.downloads!=null&&$("#fsort").value==="downloads"&&!$("#fsort").hidden?" · "+fmt(f.downloads):""}</span></div>`).join("")+
-    (hit.length>cap?`<div class="empty">${(hit.length-cap).toLocaleString("en-US")} more, keep typing to narrow</div>`:"");
+    `<span>${esc(f.label)}</span><span class="n">${f.count.toLocaleString("en-US")}${f.downloads!=null&&$("#fsort").value==="downloads"&&!$("#fsort").hidden?" · "+fmt(f.downloads):""}</span></div>`).join("");
   list.querySelectorAll("div[data-v]").forEach(d=>d.onclick=()=>{
     facetValue=d.dataset.v;
-    $("#fvsearch").value=rows.find(f=>f.value===facetValue)?.label||facetValue;
-    list.hidden=true;
+    restoreComboLabel();
+    showCombo(false);
     loadFacet();
   });
 }
 
 function showCombo(open){$("#fvlist").hidden=!open;}
+function comboLabel(){
+  const f=facetValues.find(f=>f.value===facetValue);
+  return f?f.label:(facetValue||"");
+}
+function restoreComboLabel(){$("#fvsearch").value=comboLabel();}
+function openCombo(){
+  $("#fvsearch").value="";
+  renderCombo();
+  showCombo(true);
+}
+function closeCombo(){
+  showCombo(false);
+  restoreComboLabel();
+}
 
 function renderFacet(){
   const host=$("#facets-host");
@@ -381,7 +393,7 @@ function fillValues(){
   sortSel.hidden=kind!=="org";
   facetValues=facetOptions();
   if(!facetValues.some(f=>f.value===facetValue))facetValue=facetValues.length?facetValues[0].value:null;
-  $("#fvsearch").value=facetValue?((facetValues.find(f=>f.value===facetValue)||{}).label||facetValue):"";
+  restoreComboLabel();
   showCombo(false);
 }
 
@@ -402,16 +414,20 @@ async function initFacets(){
   $("#fk").onchange=()=>{fillValues();loadFacet();};
   $("#fsort").onchange=()=>{fillValues();};
   const inp=$("#fvsearch");
-  inp.addEventListener("focus",()=>{renderCombo();showCombo(true);});
+  inp.addEventListener("focus",()=>openCombo());
   inp.addEventListener("input",()=>{renderCombo();showCombo(true);});
-  inp.addEventListener("blur",()=>{setTimeout(()=>showCombo(false),160);});
+  inp.addEventListener("blur",()=>setTimeout(()=>{
+    const a=document.activeElement;
+    if(a&&$("#combo").contains(a))return;
+    closeCombo();
+  },160));
   inp.addEventListener("keydown",e=>{
     if(e.key==="ArrowDown"||e.key==="Enter"){
       const first=$("#fvlist").querySelector("div[data-v]");
       if(first&&!$("#fvlist").hidden){first.click();e.preventDefault();}
-    }else if(e.key==="Escape"){showCombo(false);}
+    }else if(e.key==="Escape"){closeCombo();}
   });
-  $("#fvbtn").onclick=()=>{renderCombo();showCombo($("#fvlist").hidden);};
+  $("#fvbtn").onclick=()=>{$("#fvlist").hidden?openCombo():closeCombo();};
   await loadFacet();
 }
 
