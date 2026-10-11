@@ -3,7 +3,7 @@ set -uo pipefail
 
 git config user.name "modrinthranker bot"
 git config user.email "actions@users.noreply.github.com"
-git add docs
+git add docs history
 
 if git diff --cached --quiet; then
   echo "publish: nothing changed"

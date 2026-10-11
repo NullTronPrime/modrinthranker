@@ -90,6 +90,7 @@ footer a{color:var(--mut);text-decoration:underline}
 <button data-k="authors">top authors</button>
 <button data-k="deps">most depended on</button>
 <button data-k="facets">browse facets</button>
+<button data-k="trends">trends</button>
 <button data-k="graph">graph</button>
 </nav>
 
@@ -114,6 +115,19 @@ footer a{color:var(--mut);text-decoration:underline}
     <span class="count" id="finfo"></span>
   </div>
   <div id="facets-host"></div>
+</div>
+
+<div id="trends" class="tab">
+  <div class="facetbar">
+    <select id="tw">
+      <option value="7">downloads gained: last 7 days</option>
+      <option value="30">last 30 days</option>
+      <option value="90">last 90 days</option>
+    </select>
+    <span class="count" id="tinfo"></span>
+  </div>
+  <div id="tcharts"></div>
+  <div id="tgainers"></div>
 </div>
 
 <div id="projects" class="tab on"></div>
@@ -270,7 +284,7 @@ function bindHead(k){
   });
 }
 async function loadMore(k){
-  const v=views[k];if(v.busy||v.done)return;v.busy=true;render(k);
+  const v=views[k];if(!v||v.busy||v.done)return;v.busy=true;render(k);
   try{await v.more();}catch(e){$("#"+k+"-msg").textContent="failed: "+e.message;}
   v.busy=false;render(k);
 }
@@ -431,12 +445,64 @@ async function initFacets(){
   await loadFacet();
 }
 
+let trendsStarted=false,trendsData=null;
+function chartCard(title,vals,labels,color,big){
+  const w=560,h=150,pad=26,n=vals.length;
+  if(n<2)return `<div class="card"><span>${esc(title)}</span><b>${esc(big)}</b><div class="msg">warming up</div></div>`;
+  const max=Math.max(...vals),min=Math.min(...vals);
+  const x=i=>pad+i*(w-2*pad)/(n-1);
+  const y=v=>h-pad-(max===min?(h-2*pad)/2:(v-min)/(max-min)*(h-2*pad));
+  const pts=vals.map((v,i)=>[x(i),y(v)]);
+  const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+  const area=line+` L${pts[n-1][0].toFixed(1)} ${h-pad} L${pts[0][0].toFixed(1)} ${h-pad} Z`;
+  const dots=[0,Math.floor((n-1)/2),n-1].filter((v,i,a)=>a.indexOf(v)===i).map(i=>
+    `<circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="3.5" fill="${color}"><title>${esc(labels[i])}: ${esc(fmt(vals[i]))}</title></circle>`).join("");
+  return `<div class="card"><span>${esc(title)}</span><b>${esc(big)}</b>`+
+    `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;display:block;margin-top:6px">`+
+    `<path d="${area}" fill="${color}26"/><path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`+
+    dots+`</svg>`+
+    `<div style="display:flex;justify-content:space-between;color:var(--mut);font-size:11px;margin-top:2px"><span>${esc(labels[0])}</span><span>${esc(labels[n-1])}</span></div></div>`;
+}
+function renderTrendCharts(){
+  const s=trendsData.series||[],host=$("#tcharts");
+  if(s.length<2){host.innerHTML=`<div class="msg">trend history is warming up (${s.length} day${s.length===1?"":"s"} recorded) &mdash; charts appear after the first daily snapshots</div>`;return;}
+  const labels=s.map(d=>d.date),last=s[s.length-1];
+  host.innerHTML=`<div class="cards">`+
+    chartCard("total downloads",s.map(d=>d.downloads||0),labels,"#58a6ff",fmt(last.downloads))+
+    chartCard("projects tracked",s.map(d=>d.projects||0),labels,"#3fb950",fmt(last.projects))+
+    chartCard("new projects per day",s.map(d=>d.new||0),labels,"#f0883e","+"+fmt(s.reduce((a,d)=>a+(d.new||0),0))+" in history")+
+    `</div>`;
+}
+function renderGainers(){
+  const g=(trendsData.gainers||{})[$("#tw").value]||{since:null,rows:[]};
+  $("#tinfo").textContent=g.since?"gained since "+g.since:"";
+  const host=$("#tgainers");
+  if(!g.rows.length){host.innerHTML=`<div class="msg">not enough history yet for this window</div>`;return;}
+  host.innerHTML=`<table><thead><tr><th class="rank">#</th><th>project</th><th class="num">downloads gained</th><th class="num">total downloads</th></tr></thead><tbody>`+
+    g.rows.map((r,i)=>`<tr><td class="rank">${i+1}</td><td class="title-cell">`+
+      `<a href="https://modrinth.com/project/${encodeURIComponent(r.slug||r.id)}" target="_blank" rel="noopener">${esc(r.title||r.slug||r.id)}</a></td>`+
+      `<td class="num"><b>+${fmt(r.gained)}</b></td><td class="num">${fmt(r.downloads)}</td></tr>`).join("")+
+    `</tbody></table>`;
+}
+async function startTrends(){
+  if(trendsStarted)return;trendsStarted=true;
+  try{trendsData=await getJSON("analytics.json");}
+  catch(e){
+    $("#tcharts").innerHTML=`<div class="msg">trend history starts after the first daily snapshot (${esc(e.message)})</div>`;
+    return;
+  }
+  $("#tw").onchange=()=>renderGainers();
+  renderTrendCharts();
+  renderGainers();
+}
+
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
   b.classList.add("on");active=b.dataset.k;$("#"+active).classList.add("on");
   if(b.dataset.k==="graph")startGraph();
   if(b.dataset.k==="facets")initFacets();
+  if(b.dataset.k==="trends")startTrends();
 });
 
 let t0=null;

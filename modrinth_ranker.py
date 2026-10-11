@@ -10,12 +10,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 CACHE = DATA / "cache"
 PUB = Path(os.environ.get("MR_PUB", str(ROOT / "docs")))
+HIST = Path(os.environ.get("MR_HIST", str(ROOT / "history")))
 for _d in (DATA, CACHE, PUB):
     _d.mkdir(parents=True, exist_ok=True)
 DB = Path(os.environ.get("MR_DB", str(DATA / "ranks.sqlite")))
@@ -652,6 +654,157 @@ def write_if_changed(path, data):
     return True
 
 
+def load_json(path):
+    try:
+        return json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def lean_map(c):
+    rows = {}
+    for i, d, f, v, t, s, p in c.execute(
+        "SELECT id, downloads, followers, versions, title, slug, published FROM projects"
+    ):
+        rows[i] = (d or 0, f or 0, v or 0, t, s, p)
+    return rows
+
+
+def lean_rows(cur):
+    rows = [[i, v[0], v[1], v[2]] for i, v in cur.items()]
+    rows.sort(key=lambda r: (-r[1], r[0]))
+    return rows
+
+
+def state_at(upto):
+    fulls = sorted(HIST.glob("full-*.json"))
+    deltas = sorted((HIST / "deltas").glob("delta-*.json")) if (HIST / "deltas").exists() else []
+    base = None
+    for f in fulls:
+        if f.stem[len("full-"):] <= upto:
+            base = f
+    if base is None and fulls:
+        base = fulls[0]
+    if base is None:
+        return None, None
+    data = load_json(base) or {"rows": []}
+    st = {r[0]: [r[1], r[2], r[3]] for r in data["rows"]}
+    base_date = base.stem[len("full-"):]
+    last = base_date
+    for f in deltas:
+        d = f.stem[len("delta-"):]
+        if d > upto:
+            break
+        if d <= base_date:
+            continue
+        part = load_json(f) or {}
+        for r in part.get("new", []):
+            st[r[0]] = [r[1], r[2], r[3]]
+        for r in part.get("changed", []):
+            st[r[0]] = [r[1], r[2], r[3]]
+        for i in part.get("removed", []):
+            st.pop(i, None)
+        last = d
+    return st, last
+
+
+def emit_analytics(index, cur):
+    days = index.get("days", [])
+    series = [
+        {"date": d["date"], "projects": d.get("projects"),
+         "downloads": d.get("downloads"), "new": d.get("new", 0)}
+        for d in days
+    ]
+    gainers = {}
+    today = days[-1]["date"] if days else None
+    for win in (7, 30, 90):
+        cutoff = (date.fromisoformat(today) - timedelta(days=win)).isoformat() if today else None
+        base, since = state_at(cutoff) if cutoff else (None, None)
+        if base is None:
+            gainers[str(win)] = {"since": None, "rows": []}
+            continue
+        tops = sorted(
+            ((v[0] - base[i][0], i) for i, v in cur.items() if i in base and v[0] > base[i][0]),
+            reverse=True,
+        )[:50]
+        gainers[str(win)] = {
+            "since": since,
+            "rows": [
+                {"id": i, "title": cur[i][3], "slug": cur[i][4],
+                 "gained": g, "downloads": cur[i][0]}
+                for g, i in tops
+            ],
+        }
+    write_if_changed(
+        PUB / "analytics.json",
+        json.dumps({"updated": int(time.time()), "series": series, "gainers": gainers}),
+    )
+
+
+def snapshot(c):
+    HIST.mkdir(exist_ok=True)
+    (HIST / "deltas").mkdir(exist_ok=True)
+    PUB.mkdir(exist_ok=True)
+    today = os.environ.get("MR_SNAP_DATE") or time.strftime("%Y-%m-%d", time.gmtime())
+    idx_path = HIST / "index.json"
+    index = load_json(idx_path) or {"days": []}
+    cur = lean_map(c)
+    totals = {
+        "projects": len(cur),
+        "downloads": sum(v[0] for v in cur.values()),
+    }
+    prev = load_json(HIST / "latest.json")
+    if prev is None:
+        rows = lean_rows(cur)
+        payload = json.dumps({"date": today, "rows": rows})
+        write_if_changed(HIST / "latest.json", payload)
+        write_if_changed(HIST / ("full-%s.json" % today), payload)
+        index = {"days": [{"date": today, "new": 0, "changed": 0, "removed": 0,
+                           "projects": totals["projects"], "downloads": totals["downloads"]}],
+                 "last_full": today}
+        write_if_changed(idx_path, json.dumps(index, indent=1))
+        emit_analytics(index, cur)
+        log("snapshot baseline %s" % json.dumps(totals))
+        return totals
+    if any(d["date"] == today for d in index.get("days", [])):
+        emit_analytics(index, cur)
+        log("snapshot already recorded for %s, analytics refreshed" % today)
+        return totals
+    prev_rows = {r[0]: (r[1], r[2], r[3]) for r in prev.get("rows", [])}
+    new, changed, removed = [], [], []
+    for i, v in cur.items():
+        old = prev_rows.get(i)
+        if old is None:
+            new.append([i, v[0], v[1], v[2], v[3], v[4], v[5]])
+        elif old != (v[0], v[1], v[2]):
+            changed.append([i, v[0], v[1], v[2]])
+    for i in prev_rows:
+        if i not in cur:
+            removed.append(i)
+    new.sort(key=lambda r: -r[1])
+    changed.sort(key=lambda r: -r[1])
+    write_if_changed(
+        HIST / "deltas" / ("delta-%s.json" % today),
+        json.dumps({"date": today, "new": new, "changed": changed,
+                    "removed": removed, "totals": totals}),
+    )
+    rows = lean_rows(cur)
+    write_if_changed(HIST / "latest.json", json.dumps({"date": today, "rows": rows}))
+    index.setdefault("days", []).append(
+        {"date": today, "new": len(new), "changed": len(changed),
+         "removed": len(removed), "projects": totals["projects"],
+         "downloads": totals["downloads"]}
+    )
+    last_full = index.get("last_full")
+    if not last_full or (date.fromisoformat(today) - date.fromisoformat(last_full)).days >= 7:
+        write_if_changed(HIST / ("full-%s.json" % today), json.dumps({"date": today, "rows": rows}))
+        index["last_full"] = today
+    write_if_changed(idx_path, json.dumps(index, indent=1))
+    emit_analytics(index, cur)
+    log("snapshot %s new=%d changed=%d removed=%d" % (today, len(new), len(changed), len(removed)))
+    return totals
+
+
 def facet_label(kind, val):
     if kind == "type":
         return val or "unknown"
@@ -829,6 +982,7 @@ def main():
     ap.add_argument("--users", action="store_true")
     ap.add_argument("--deps", action="store_true")
     ap.add_argument("--hourly", action="store_true")
+    ap.add_argument("--snapshot", action="store_true")
     a = ap.parse_args()
     client = PacedClient()
     c = sqlite3.connect(DB)
@@ -853,6 +1007,14 @@ def main():
         edges = crawl_deps(client, c, TOP_N)
         c.commit()
         log("deps edges %d" % edges)
+    if a.snapshot:
+        held = c.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+        if held < MIN_PUBLISH:
+            log("refusing to snapshot: only %d projects in database" % held)
+        else:
+            snap = snapshot(c)
+            c.commit()
+            log("snapshot %s" % json.dumps(snap))
     if a.web or a.full or a.live or a.emit or a.users or a.deps or a.hourly:
         c.commit()
         held = c.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
