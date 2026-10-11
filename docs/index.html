@@ -250,13 +250,15 @@ async function loadMore(k){
 }
 
 let active="projects";
-let facetData=null, facetMeta=null, facetBoard=null, facetList=[], facetSort={c:"downloads",d:-1};
+let facetData=null, facetMeta=null, facetBoard=null, facetList=[], facetShown=100, facetSort={c:"downloads",d:-1};
 const KIND_LABEL={category:"Category",type:"Project type",client_side:"Client side",server_side:"Server side",status:"Status",license:"License",org:"Organization"};
 
 function renderFacet(){
   const host=$("#facets-host");
   if(!facetList.length){host.innerHTML=`<div class="msg">no data</div>`;return;}
-  const cols=["title","downloads","followers","versions","license"];
+  let cols=["title","downloads","followers","versions","license"];
+  const fv=$("#fv")?$("#fv").value:"";
+  if($("#fk")&&$("#fk").value==="org"&&facetList.some(o=>o.org_name))cols=["title","org_name","downloads","followers","versions","license"];
   const max={};for(const c of cols)max[c]=Math.max(1,...facetList.map(o=>Number(o[c])||0));
   const list=facetList.slice().sort((a,b)=>{
     const x=a[facetSort.c],y=b[facetSort.c];
@@ -264,17 +266,24 @@ function renderFacet(){
     return String(x??"").localeCompare(String(y??""))*facetSort.d;
   });
   const q=($("#q").value||"").trim().toLowerCase();
-  const shown=q?list.filter(o=>Object.values(o).some(x=>typeof x==="string"&&x.toLowerCase().includes(q))):list;
+  const matched=q?list.filter(o=>Object.values(o).some(x=>typeof x==="string"&&x.toLowerCase().includes(q))):list;
+  const shown=matched.slice(0,facetShown);
   const head=`<tr><th class="rank">#</th>`+cols.map(c=>
-    `<th class="${isNum(c)?"num ":""}" data-fc="${c}">${esc(colLabel(c))}${facetSort.c===c?(facetSort.d<0?" ↓":" ↑"):""}</th>`).join("")+"</tr>";
+    `<th class="${isNum(c)?"num ":""}${/title|username/.test(c)?' style="text-align:left"':""}" data-fc="${c}">${esc(colLabel(c))}${facetSort.c===c?(facetSort.d<0?" ↓":" ↑"):""}</th>`).join("")+"</tr>";
   host.innerHTML=`<table><thead>${head}</thead><tbody>`+shown.map((o,i)=>
-    `<tr><td class="rank">${i+1}</td>`+cols.map(c=>`<td${isNum(c)?' class="num"':""}>${cellDate(o,c,max)}</td>`).join("")+"</tr>").join("")+"</tbody></table>"+
-    `<div class="msg">${shown.length.toLocaleString("en-US")} of ${facetList.length.toLocaleString("en-US")} in this facet</div>`;
+    `<tr><td class="rank">${i+1}</td>`+cols.map(c=>`<td${isNum(c)?' class="num"':""}${c==="title"?' class="title-cell"':""}>${cellDate(o,c,max)}</td>`).join("")+"</tr>").join("")+"</tbody></table>"+
+    `<div class="msg" id="facet-more" style="cursor:pointer">${shown.length.toLocaleString("en-US")} of ${matched.length.toLocaleString("en-US")} shown${matched.length>shown.length?" — click or scroll for more":""}</div>`;
   host.querySelectorAll("th[data-fc]").forEach(th=>th.onclick=()=>{
     const c=th.dataset.fc;
     if(facetSort.c===c)facetSort.d*=-1;else{facetSort.c=c;facetSort.d=isNum(c)?-1:1;}
     renderFacet();
   });
+  const more=$("#facet-more");
+  if(more&&matched.length>shown.length){
+    more.onclick=()=>{facetShown+=150;renderFacet();};
+    const mo=new IntersectionObserver(es=>{if(es.some(x=>x.isIntersecting)){facetShown+=150;mo.disconnect();renderFacet();}},{rootMargin:"300px"});
+    mo.observe(more);
+  }
 }
 
 async function loadFacet(){
@@ -292,7 +301,7 @@ function fillValues(){
   const kind=$("#fk").value;
   const vals=(facetMeta?.facets||[]).filter(f=>f.kind===kind);
   const sel=$("#fv");
-  sel.innerHTML=vals.map(f=>`<option value="${esc(f.value)}">${esc(f.label)} (${f.count.toLocaleString("en-US")})</option>`).join("");
+  sel.innerHTML=vals.map(f=>`<option value="${esc(f.value)}">${esc(f.label||f.value)} (${f.count.toLocaleString("en-US")})</option>`).join("");
   if(sel.options&&sel.options.length)sel.value=sel.options[0].value;
 }
 
@@ -335,83 +344,168 @@ async function startGraph(){
   if(graphStarted)return;graphStarted=true;
   const svg=$("#gsvg"),msg=$("#graph-msg");
   let g;
-  try{g=await getJSON("graph.json");}catch(e){msg.textContent="graph unavailable: "+e.message;return;}
-  const W=1000,H=640;
-  const nodes=g.nodes.map((n,i)=>({...n,x:Math.cos(i*2.399)*260,y:Math.sin(i*2.399)*260,vx:0,vy:0}));
+  try{g=await getJSON("graph.json");}catch(e){msg.textContent="graph unavailable: "+esc(e.message);return;}
+  const W=1000,H=640,NS="http://www.w3.org/2000/svg";
+  svg.innerHTML="";
+  const root=document.createElementNS(NS,"g");
+  svg.appendChild(root);
+  const defs=document.createElementNS(NS,"defs");
+  svg.insertBefore(defs,root);
+  root.setAttribute("transform","translate(0,0) scale(1)");
+
+  const nodes=g.nodes.map((n,i)=>({...n,x:Math.cos(i*2.399)*300,y:Math.sin(i*2.399)*300,vx:0,vy:0,r:0,el:null}));
   const idx=new Map(nodes.map((n,i)=>[n.id,i]));
   const edges=g.edges.filter(e=>idx.has(e.source)&&idx.has(e.target))
     .map(e=>({s:idx.get(e.source),t:idx.get(e.target),kind:e.kind}));
-  let pan={x:0,y:0},k=1;
+
   const col={depends:"#3fb950",collab:"#a371f7",works:"#8b949e"};
-  const radius=n=>n.type==="project"?Math.max(7,Math.min(20,4+Math.sqrt((n.downloads||1)/160000))):6;
-function draw(){
-    let out="",defs="";
-    for(const e of edges){
-      const a=nodes[e.s],b=nodes[e.t];
-      out+=`<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${col[e.kind]}" stroke-width="${e.kind==="collab"?1.3:1}" stroke-opacity="${e.kind==="works"?0.3:0.7}"/>`;
-    }
-    nodes.forEach((n,i)=>{
-      const r=radius(n);
-      const title=`<title>${esc(n.label)}${n.depended_by?" — "+fmt(n.depended_by)+" depend on it":""}${n.downloads?" — "+fmt(n.downloads)+" downloads":""}</title>`;
-      if(n.icon||n.avatar){
-        defs+=`<clipPath id="c${i}"><circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${(r-0.5).toFixed(1)}"/></clipPath>`;
-        out+=`<image href="${esc(n.icon||n.avatar)}" x="${(n.x-r).toFixed(1)}" y="${(n.y-r).toFixed(1)}" width="${(r*2).toFixed(1)}" height="${(r*2).toFixed(1)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#c${i})"${title}/>`;
-        out+=`<circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${r.toFixed(1)}" fill="none" stroke="#0d1117" stroke-width="1.5" pointer-events="none"/>`;
-      }else{
-        out+=`<circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${n.type==="project"?"#58a6ff":"#f0883e"}" stroke="#0d1117" stroke-width="1"${title}/>`;
-      }
-    });
-    svg.innerHTML=`<defs>${defs}</defs><g transform="translate(${pan.x.toFixed(1)},${pan.y.toFixed(1)}) scale(${k.toFixed(3)})">${out}</g>`;
+
+  for(const n of nodes){
+    n.r=n.type==="project"?Math.max(6,Math.min(17,3.5+Math.sqrt((n.downloads||1)/180000))):5;
   }
-  function tick(){
+
+  const edgeEls=edges.map(e=>{
+    const l=document.createElementNS(NS,"line");
+    l.setAttribute("stroke",col[e.kind]);
+    l.setAttribute("stroke-width",e.kind==="collab"?1.1:0.9);
+    l.setAttribute("stroke-opacity",e.kind==="works"?0.22:0.55);
+    root.appendChild(l);
+    return l;
+  });
+
+  const nodeEls=nodes.map((n,i)=>{
+    let el;
+    if(n.icon||n.avatar){
+      const cp=document.createElementNS(NS,"clipPath");
+      cp.setAttribute("id","gc"+i);
+      const cc=document.createElementNS(NS,"circle");
+      cc.setAttribute("cx",n.x);cc.setAttribute("cy",n.y);cc.setAttribute("r",n.r-0.5);
+      cp.appendChild(cc);defs.appendChild(cp);
+      const im=document.createElementNS(NS,"image");
+      im.setAttribute("href",n.icon||n.avatar);
+      im.setAttribute("width",n.r*2);im.setAttribute("height",n.r*2);
+      im.setAttribute("preserveAspectRatio","xMidYMid slice");
+      im.setAttribute("clip-path","url(#gc"+i+")");
+      root.appendChild(im);
+      const ring=document.createElementNS(NS,"circle");
+      ring.setAttribute("fill","none");ring.setAttribute("stroke","#0d1117");ring.setAttribute("stroke-width","1.4");
+      root.appendChild(ring);
+      const title=document.createElementNS(NS,"title");
+      title.textContent=n.label+(n.downloads?" - "+fmt(n.downloads)+" downloads":"")+(n.depended_by?" - "+fmt(n.depended_by)+" depend on it":"");
+      im.appendChild(title);
+      el={im,ring,clip:cc};
+    }else{
+      const c=document.createElementNS(NS,"circle");
+      c.setAttribute("r",n.r);
+      c.setAttribute("fill",n.type==="project"?"#58a6ff":"#f0883e");
+      c.setAttribute("stroke","#0d1117");c.setAttribute("stroke-width","1");
+      const t=document.createElementNS(NS,"title");
+      t.textContent=n.label+(n.downloads?" - "+fmt(n.downloads)+" downloads":"");
+      c.appendChild(t);
+      root.appendChild(c);
+      el={c};
+    }
+    return el;
+  });
+
+  let pan={x:0,y:0},k=1;
+  function paint(){
+    for(let i=0;i<edges.length;i++){
+      const a=nodes[edges[i].s],b=nodes[edges[i].t],l=edgeEls[i];
+      l.setAttribute("x1",a.x);l.setAttribute("y1",a.y);
+      l.setAttribute("x2",b.x);l.setAttribute("y2",b.y);
+    }
     for(let i=0;i<nodes.length;i++){
+      const n=nodes[i],e=nodeEls[i];
+      if(e.c){e.c.setAttribute("cx",n.x);e.c.setAttribute("cy",n.y);}
+      else{
+        e.im.setAttribute("x",n.x-n.r);e.im.setAttribute("y",n.y-n.r);
+        e.ring.setAttribute("cx",n.x);e.ring.setAttribute("cy",n.y);
+        e.clip.setAttribute("cx",n.x);e.clip.setAttribute("cy",n.y);
+      }
+    }
+  }
+  function view(){
+    root.setAttribute("transform","translate("+pan.x.toFixed(1)+","+pan.y.toFixed(1)+") scale("+k.toFixed(3)+")");
+  }
+
+  function tick(){
+    const n=nodes.length;
+    for(let i=0;i<n;i++){
       const a=nodes[i];
-      for(let j=i+1;j<nodes.length;j++){
-        const b=nodes[j];let dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
-        if(d2<1){dx=Math.random()-.5;dy=Math.random()-.5;d2=1;}
-        const d=Math.sqrt(d2),f=5200/d2,fx=dx/d*f,fy=dy/d*f;
+      for(let j=i+1;j<n;j++){
+        const b=nodes[j];
+        let dx=b.x-a.x,dy=b.y-a.y;
+        let d2=dx*dx+dy*dy;
+        if(d2<0.01){dx=(Math.random()-.5)*0.6;dy=(Math.random()-.5)*0.6;d2=0.36;}
+        const d=Math.sqrt(d2);
+        const min=a.r+b.r+3;
+        let f=(2600/d2);
+        if(d<min)f+= (min-d)*0.55;
+        const fx=dx/d*f,fy=dy/d*f;
         a.vx-=fx;a.vy-=fy;b.vx+=fx;b.vy+=fy;
       }
-      a.vx-=a.x*0.0055;a.vy-=a.y*0.0055;
+      a.vx-=a.x*0.004;a.vy-=a.y*0.004;
     }
-    for(const e of edges){
-      const a=nodes[e.s],b=nodes[e.t];
-      const t=e.kind==="collab"?95:e.kind==="works"?120:210;
-      let dx=b.x-a.x,dy=b.y-a.y,d=Math.max(1,Math.hypot(dx,dy)),f=(d-t)*0.008*((d-t)>0?1:-0.5);
-      const fx=dx/d*f,fy=dy/d*f;a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy;
+    for(let i=0;i<edges.length;i++){
+      const e=edges[i],a=nodes[e.s],b=nodes[e.t];
+      const gap=a.r+b.r;
+      const target=e.kind==="collab"?gap+46:e.kind==="works"?gap+40:150;
+      let dx=b.x-a.x,dy=b.y-a.y;
+      const d=Math.max(0.01,Math.hypot(dx,dy));
+      const f=(d-target)*0.006*(d>target?1:-0.4);
+      const fx=dx/d*f,fy=dy/d*f;
+      a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy;
     }
-    for(const n of nodes){n.vx*=0.84;n.vy*=0.84;n.x+=Math.max(-20,Math.min(20,n.vx));n.y+=Math.max(-20,Math.min(20,n.vy));}
+    for(let i=0;i<n;i++){
+      const a=nodes[i];
+      a.vx*=0.82;a.vy*=0.82;
+      const sp=Math.hypot(a.vx,a.vy);
+      if(sp>14){a.vx=a.vx/sp*14;a.vy=a.vy/sp*14;}
+      a.x+=a.vx;a.y+=a.vy;
+    }
   }
-  for(let i=0;i<320;i++)tick();
+  for(let i=0;i<300;i++)tick();
+  paint();
+
   function fit(){
-    const xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y);
-    const minx=Math.min(...xs)-40,maxx=Math.max(...xs)+40;
-    const miny=Math.min(...ys)-40,maxy=Math.max(...ys)+40;
-    k=Math.min(W/(maxx-minx),H/(maxy-miny));
-    k=Math.max(0.18,Math.min(2.4,k));
+    let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+    for(const n of nodes){
+      if(n.x<minx)minx=n.x;if(n.x>maxx)maxx=n.x;
+      if(n.y<miny)miny=n.y;if(n.y>maxy)maxy=n.y;
+    }
+    const pad=60;
+    minx-=pad;maxx+=pad;miny-=pad;maxy+=pad;
+    k=Math.max(0.1,Math.min(2,Math.min(W/(maxx-minx),H/(maxy-miny))));
     pan.x=W/2-((minx+maxx)/2)*k;
     pan.y=H/2-((miny+maxy)/2)*k;
-    draw();
+    view();
   }
-  svg.addEventListener("wheel",e=>{e.preventDefault();k=Math.max(0.25,Math.min(4,k*(e.deltaY<0?1.12:0.89)));draw();},{passive:false});
+  fit();
+
+  svg.addEventListener("wheel",e=>{e.preventDefault();
+    k=Math.max(0.12,Math.min(4,k*(e.deltaY<0?1.12:0.89)));view();},{passive:false});
   let drag=false,last=null;
   svg.addEventListener("pointerdown",e=>{drag=true;last=[e.clientX,e.clientY];svg.setPointerCapture(e.pointerId);});
   svg.addEventListener("pointermove",e=>{
     if(!drag)return;
     const r=svg.getBoundingClientRect();
-    pan.x+=(e.clientX-last[0])*W/r.width;pan.y+=(e.clientY-last[1])*H/r.height;
-    last=[e.clientX,e.clientY];draw();
+    pan.x+=(e.clientX-last[0])*W/r.width;
+    pan.y+=(e.clientY-last[1])*H/r.height;
+    last=[e.clientX,e.clientY];view();
   });
-  svg.addEventListener("pointerup",()=>drag=false);
-  const io2=new IntersectionObserver(es=>{
-    if(es.some(x=>x.isIntersecting)&&!raf)raf=setInterval(tick,45);
-    else if(raf){clearInterval(raf);raf=null;}
-  });
-  let raf=null;
-  io2.observe($("#graphbox"));
-  fit();
-  msg.innerHTML=`${nodes.length} nodes &middot; ${edges.length} connections `+
-    `(${edges.filter(e=>e.kind==="collab").length} developer pairs, ${edges.filter(e=>e.kind==="works").length} roles, ${edges.filter(e=>e.kind==="depends").length} dependencies)`;
+  const stop=()=>{drag=false;};
+  svg.addEventListener("pointerup",stop);
+  svg.addEventListener("pointercancel",stop);
+  const relax=()=>{for(let i=0;i<25;i++)tick();paint();};
+  const relaxer=setInterval(relax,900);
+
+  msg.textContent=nodes.length+" nodes \· "+edges.length+" connections ("
+    +edges.filter(e=>e.kind==="collab").length+" developer pairs, "
+    +edges.filter(e=>e.kind==="works").length+" roles, "
+    +edges.filter(e=>e.kind==="depends").length+" dependencies)"
+    +" \· drag to pan, scroll to zoom";
+  $("#graphbox").dataset.ready="1";
 }
 
 window.addEventListener("DOMContentLoaded",async()=>{

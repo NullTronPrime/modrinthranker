@@ -733,7 +733,7 @@ def emit_facets(c, projects_by_dl):
     return facets
 
 
-def emit_facet_boards(c, projects_by_id, facets, per=100):
+def emit_facet_boards(c, projects_by_id, facets, per=100, full_upto=1000, cap=400):
     groups = {}
     for r in c.execute(
         """SELECT id, categories, additional_categories, project_type, client_side,
@@ -766,7 +766,8 @@ def emit_facet_boards(c, projects_by_id, facets, per=100):
     boards = []
     for (kind, val), pids in groups.items():
         pids.sort(key=lambda p: -(projects_by_id.get(p, {}).get("downloads") or 0))
-        top = [projects_by_id[p] for p in pids[:per] if p in projects_by_id]
+        n = len(pids) if len(pids) <= full_upto else min(cap, len(pids))
+        top = [projects_by_id[p] for p in pids[:n] if p in projects_by_id]
         safe = "".join(ch if ch.isalnum() else "_" for ch in str(val))[:50]
         sig = hashlib.sha1(str(val).encode("utf-8")).hexdigest()[:8]
         name = "facets-%s-%s-%s.json" % (kind, safe, sig)
