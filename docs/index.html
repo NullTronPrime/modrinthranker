@@ -25,6 +25,17 @@ nav button.on{background:var(--acc);color:#0d1117;border-color:var(--acc);font-w
 .facetbar{display:flex;gap:8px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
 .facetbar select{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:14px;max-width:340px}
 .facetbar select:focus{outline:none;border-color:var(--acc)}
+.combo{position:relative;flex:1;min-width:260px;max-width:460px}
+.combo input{width:100%;background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:9px 34px 9px 12px;font-size:14px}
+.combo input:focus{outline:none;border-color:var(--acc)}
+.combo button{position:absolute;right:2px;top:2px;bottom:2px;width:30px;background:transparent;color:var(--mut);border:0;border-radius:6px;cursor:pointer;font-size:13px}
+.combo button:hover{color:var(--tx)}
+.combo-list{position:absolute;z-index:40;left:0;right:0;top:calc(100% + 4px);max-height:340px;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 12px 28px #0009}
+.combo-list div{padding:8px 12px;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;gap:12px}
+.combo-list div:hover{background:#1c2128}
+.combo-list div.sel{background:#1f6feb33;color:var(--tx)}
+.combo-list .n{color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+.combo-list .empty{padding:12px;color:var(--mut);cursor:default}
 .bar{display:flex;gap:10px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
 input[type=search]{flex:1;min-width:220px;background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:14px}
 input[type=search]:focus{outline:none;border-color:var(--acc)}
@@ -68,10 +79,10 @@ footer a{color:var(--mut);text-decoration:underline}
 <p class="sub" id="sub">loading&hellip;</p>
 
 <div class="cards">
-<div class="card"><b id="c-proj">&mdash;</b><span>projects</span></div>
-<div class="card"><b id="c-auth">&mdash;</b><span>authors</span></div>
-<div class="card"><b id="c-dep">&mdash;</b><span>dependency edges</span></div>
-<div class="card"><b id="c-mod">&mdash;</b><span>mods ranked</span></div>
+<div class="card" title="Every public project on Modrinth"><b id="c-proj">&mdash;</b><span>projects</span></div>
+<div class="card" title="Distinct developers credited on at least one project"><b id="c-auth">&mdash;</b><span>authors</span></div>
+<div class="card" title="Dependency links found: project A lists project B as a dependency"><b id="c-dep">&mdash;</b><span>dependency links</span></div>
+<div class="card" title="Distinct projects that at least one other project depends on"><b id="c-mod">&mdash;</b><span>depended-upon mods</span></div>
 </div>
 
 <nav>
@@ -90,7 +101,16 @@ footer a{color:var(--mut);text-decoration:underline}
 <div id="facets" class="tab">
   <div class="facetbar">
     <select id="fk"></select>
-    <select id="fv"></select>
+    <div class="combo" id="combo">
+      <input type="text" id="fvsearch" placeholder="search facets&hellip;" autocomplete="off" spellcheck="false">
+      <button type="button" id="fvbtn" aria-label="show facets">&#9662;</button>
+      <div class="combo-list" id="fvlist" hidden></div>
+    </div>
+    <select id="fsort" hidden>
+      <option value="count">sort: most projects</option>
+      <option value="downloads">sort: most downloads</option>
+      <option value="name">sort: name A-Z</option>
+    </select>
     <span class="count" id="finfo"></span>
   </div>
   <div id="facets-host"></div>
@@ -257,7 +277,42 @@ async function loadMore(k){
 
 let active="projects";
 let facetData=null, facetMeta=null, facetBoard=null, facetList=[], facetShown=100, facetSort={c:"downloads",d:-1};
+let facetValues=[], facetValue=null;
 const KIND_LABEL={category:"Category",type:"Project type",client_side:"Client side",server_side:"Server side",status:"Status",license:"License",org:"Organization"};
+
+function facetOptions(){
+  const kind=$("#fk").value;
+  let vals=(facetMeta?.facets||[]).filter(f=>f.kind===kind);
+  const mode=$("#fsort").hidden?"count":$("#fsort").value;
+  if(kind==="org"){
+    if(mode==="downloads")vals=vals.slice().sort((a,b)=>(b.downloads||0)-(a.downloads||0));
+    else if(mode==="name")vals=vals.slice().sort((a,b)=>String(a.label).localeCompare(String(b.label)));
+    else vals=vals.slice().sort((a,b)=>b.count-a.count);
+  }else{
+    vals=vals.slice().sort((a,b)=>b.count-a.count);
+  }
+  return vals;
+}
+
+function renderCombo(){
+  const list=$("#fvlist"),q=($("#fvsearch").value||"").trim().toLowerCase();
+  const rows=facetOptions();
+  const hit=q?rows.filter(f=>String(f.label).toLowerCase().includes(q)||String(f.value).toLowerCase().includes(q)):rows;
+  if(!hit.length){list.innerHTML=`<div class="empty">no facet matches "${esc(q)}"</div>`;return;}
+  const cap=300,shown=hit.slice(0,cap);
+  list.innerHTML=shown.map(f=>
+    `<div data-v="${esc(f.value)}" class="${f.value===facetValue?"sel":""}">`+
+    `<span>${esc(f.label)}</span><span class="n">${f.count.toLocaleString("en-US")}${f.downloads!=null&&$("#fsort").value==="downloads"&&!$("#fsort").hidden?" · "+fmt(f.downloads):""}</span></div>`).join("")+
+    (hit.length>cap?`<div class="empty">${(hit.length-cap).toLocaleString("en-US")} more, keep typing to narrow</div>`:"");
+  list.querySelectorAll("div[data-v]").forEach(d=>d.onclick=()=>{
+    facetValue=d.dataset.v;
+    $("#fvsearch").value=rows.find(f=>f.value===facetValue)?.label||facetValue;
+    list.hidden=true;
+    loadFacet();
+  });
+}
+
+function showCombo(open){$("#fvlist").hidden=!open;}
 
 function renderFacet(){
   const host=$("#facets-host");
@@ -293,9 +348,9 @@ function renderFacet(){
 }
 
 async function loadFacet(){
-  const kind=$("#fk").value,val=$("#fv").value;
+  const kind=$("#fk").value,val=facetValue;
   const board=facetData.boards.find(b=>b.kind===kind&&b.value===val);
-  $("#finfo").textContent=board?`${board.members.toLocaleString("en-US")} projects in this facet, showing ${Math.min(board.shown,board.members).toLocaleString("en-US")}`:"";
+  $("#finfo").textContent=board?`${board.members.toLocaleString("en-US")} projects in this facet, top ${Math.min(board.shown,board.members).toLocaleString("en-US")} ranked by downloads`:"";
   if(!board){facetList=[];renderFacet();return;}
   try{facetBoard=await getJSON(board.file);}
   catch(e){
@@ -310,7 +365,7 @@ async function loadFacet(){
         facetData=await getJSON("facets-index.json");
         const again=facetData.boards.find(b=>b.kind===kind&&b.value===val);
         if(again){facetBoard=await getJSON(again.file);facetList=facetBoard||[];
-          $("#finfo").textContent=`${again.members.toLocaleString("en-US")} projects in this facet, showing ${Math.min(again.shown,again.members).toLocaleString("en-US")}`;
+          $("#finfo").textContent=`${again.members.toLocaleString("en-US")} projects in this facet, top ${Math.min(again.shown,again.members).toLocaleString("en-US")} ranked by downloads`;
           renderFacet();return;}
       }catch(e2){}
     }
@@ -322,10 +377,12 @@ async function loadFacet(){
 
 function fillValues(){
   const kind=$("#fk").value;
-  const vals=(facetMeta?.facets||[]).filter(f=>f.kind===kind);
-  const sel=$("#fv");
-  sel.innerHTML=vals.map(f=>`<option value="${esc(f.value)}">${esc(f.label||f.value)} (${f.count.toLocaleString("en-US")})</option>`).join("");
-  if(sel.options&&sel.options.length)sel.value=sel.options[0].value;
+  const sortSel=$("#fsort");
+  sortSel.hidden=kind!=="org";
+  facetValues=facetOptions();
+  if(!facetValues.some(f=>f.value===facetValue))facetValue=facetValues.length?facetValues[0].value:null;
+  $("#fvsearch").value=facetValue?((facetValues.find(f=>f.value===facetValue)||{}).label||facetValue):"";
+  showCombo(false);
 }
 
 let facetLoaded=false;
@@ -343,7 +400,18 @@ async function initFacets(){
   if(fkSel.options&&fkSel.options.length)fkSel.value=fkSel.options[0].value;
   fillValues();
   $("#fk").onchange=()=>{fillValues();loadFacet();};
-  $("#fv").onchange=loadFacet;
+  $("#fsort").onchange=()=>{fillValues();};
+  const inp=$("#fvsearch");
+  inp.addEventListener("focus",()=>{renderCombo();showCombo(true);});
+  inp.addEventListener("input",()=>{renderCombo();showCombo(true);});
+  inp.addEventListener("blur",()=>{setTimeout(()=>showCombo(false),160);});
+  inp.addEventListener("keydown",e=>{
+    if(e.key==="ArrowDown"||e.key==="Enter"){
+      const first=$("#fvlist").querySelector("div[data-v]");
+      if(first&&!$("#fvlist").hidden){first.click();e.preventDefault();}
+    }else if(e.key==="Escape"){showCombo(false);}
+  });
+  $("#fvbtn").onclick=()=>{renderCombo();showCombo($("#fvlist").hidden);};
   await loadFacet();
 }
 
@@ -545,7 +613,9 @@ window.addEventListener("DOMContentLoaded",async()=>{
     $("#c-auth").textContent=fmt(meta.authors);
     $("#c-dep").textContent=fmt(meta.deps);
     $("#c-mod").textContent=fmt(meta.depended||meta.deps);
-    $("#sub").textContent=`Census of every public Modrinth project · updated ${new Date(meta.generated*1000).toUTCString()}`;
+    const crawled=meta.dep_projects_crawled;
+    $("#sub").innerHTML=`Census of every public Modrinth project · updated ${new Date(meta.generated*1000).toUTCString()}`+
+      (crawled?` · dependency links crawled from ${fmt(crawled)} projects, expanding hourly`:``);
   }
   await Promise.all(Object.keys(views).map(k=>loadMore(k)));
   io.observe($("#sentinel"));

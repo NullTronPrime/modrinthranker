@@ -572,6 +572,9 @@ def emit(client, c, light=False):
         1 for d in rich
         if (titles.get(d["to"]) or "") != "" and (d.get("type") or "") != ""
     )
+    meta["dep_projects_crawled"] = c.execute(
+        "SELECT COUNT(DISTINCT project_id) FROM deps"
+    ).fetchone()[0]
     (PUB / "categories.json").write_text(
         json.dumps({"categories": cat_counts, "types": type_counts}), "utf-8"
     )
@@ -719,16 +722,24 @@ def emit_facets(c, projects_by_dl):
             og = r[7].strip()
             facet_counts["org"][og] = facet_counts["org"].get(og, 0) + 1
 
+    org_dl = {}
+    for org, dl in c.execute(
+        """SELECT org, SUM(downloads) FROM projects
+           WHERE org IS NOT NULL AND org <> '' GROUP BY org"""
+    ):
+        org_dl[org] = dl or 0
+
     facets = []
     for kind, counts in facet_counts.items():
         for val, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
             label = facet_label(kind, val)
+            entry = {"kind": kind, "value": val, "label": label, "count": n}
             if kind == "org":
                 label = orgname.get(val, val)
-            facets.append({
-                "kind": kind, "value": val,
-                "label": label, "count": n,
-            })
+                entry["label"] = label
+                entry["downloads"] = org_dl.get(val, 0)
+            facets.append(entry)
+    facets.sort(key=lambda f: (f["kind"], -f["count"]))
     write_if_changed(PUB / "facets.json", json.dumps({"facets": facets}))
     return facets
 
