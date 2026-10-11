@@ -59,6 +59,12 @@ a:hover{text-decoration:underline}
 .bar-cell span{position:relative;z-index:1}
 .tab{display:none}
 .tab.on{display:block}
+.tsub{display:none}
+.tsub.on{display:block}
+.mini-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:0 0 12px}
+.mini-cards .card{padding:10px 12px}
+.mini-cards .card b{font-size:17px}
+.mini-cards .card span{font-size:11px}
 #graphbox{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 #graphbox svg{display:block;width:100%;height:min(70vh,640px);cursor:grab}
 #graphbox svg:active{cursor:grabbing}
@@ -118,16 +124,52 @@ footer a{color:var(--mut);text-decoration:underline}
 </div>
 
 <div id="trends" class="tab">
-  <div class="facetbar">
-    <select id="tw">
-      <option value="7">downloads gained: last 7 days</option>
-      <option value="30">last 30 days</option>
-      <option value="90">last 90 days</option>
-    </select>
-    <span class="count" id="tinfo"></span>
+  <nav style="margin-bottom:12px">
+    <button data-t="overview" class="on">overview</button>
+    <button data-t="velocity">velocity</button>
+    <button data-t="movers">top movers</button>
+    <button data-t="explorer">diff explorer</button>
+  </nav>
+  <div id="t-overview" class="tsub on">
+    <div id="tcharts"></div>
+    <div id="tstatus" style="margin-top:14px"></div>
+    <div id="tdaily" style="margin-top:14px"></div>
   </div>
-  <div id="tcharts"></div>
-  <div id="tgainers"></div>
+  <div id="t-velocity" class="tsub">
+    <div class="facetbar">
+      <select id="tvel-win">
+        <option value="7">last 7 days</option>
+        <option value="30">last 30 days</option>
+        <option value="90">last 90 days</option>
+      </select>
+      <span class="count" id="tvel-info"></span>
+    </div>
+    <div id="tvel-chart"></div>
+    <div id="tvel-table"></div>
+  </div>
+  <div id="t-movers" class="tsub">
+    <div class="facetbar">
+      <select id="tw">
+        <option value="7">last 7 days</option>
+        <option value="30">last 30 days</option>
+        <option value="90">last 90 days</option>
+      </select>
+      <select id="tm-kind">
+        <option value="gainers">biggest gainers</option>
+        <option value="losers">biggest drops</option>
+      </select>
+      <span class="count" id="tinfo"></span>
+    </div>
+    <div id="tgainers"></div>
+  </div>
+  <div id="t-explorer" class="tsub">
+    <div class="facetbar">
+      <select id="tex-day"></select>
+      <span class="count" id="tex-info"></span>
+    </div>
+    <div id="tex-summary"></div>
+    <div id="tex-table"></div>
+  </div>
 </div>
 
 <div id="projects" class="tab on"></div>
@@ -446,9 +488,10 @@ async function initFacets(){
 }
 
 let trendsStarted=false,trendsData=null;
-function chartCard(title,vals,labels,color,big){
-  const w=560,h=150,pad=26,n=vals.length;
-  if(n<2)return `<div class="card"><span>${esc(title)}</span><b>${esc(big)}</b><div class="msg">warming up</div></div>`;
+function spark(vals,labels,color,h){
+  h=h||150;
+  const w=560,pad=26,n=vals.length;
+  if(n<2)return `<div class="msg">warming up</div>`;
   const max=Math.max(...vals),min=Math.min(...vals);
   const x=i=>pad+i*(w-2*pad)/(n-1);
   const y=v=>h-pad-(max===min?(h-2*pad)/2:(v-min)/(max-min)*(h-2*pad));
@@ -457,32 +500,133 @@ function chartCard(title,vals,labels,color,big){
   const area=line+` L${pts[n-1][0].toFixed(1)} ${h-pad} L${pts[0][0].toFixed(1)} ${h-pad} Z`;
   const dots=[0,Math.floor((n-1)/2),n-1].filter((v,i,a)=>a.indexOf(v)===i).map(i=>
     `<circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="3.5" fill="${color}"><title>${esc(labels[i])}: ${esc(fmt(vals[i]))}</title></circle>`).join("");
-  return `<div class="card"><span>${esc(title)}</span><b>${esc(big)}</b>`+
-    `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;display:block;margin-top:6px">`+
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;display:block;margin-top:6px">`+
     `<path d="${area}" fill="${color}26"/><path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`+
     dots+`</svg>`+
-    `<div style="display:flex;justify-content:space-between;color:var(--mut);font-size:11px;margin-top:2px"><span>${esc(labels[0])}</span><span>${esc(labels[n-1])}</span></div></div>`;
+    `<div style="display:flex;justify-content:space-between;color:var(--mut);font-size:11px;margin-top:2px"><span>${esc(labels[0])}</span><span>${esc(labels[n-1])}</span></div>`;
 }
-function renderTrendCharts(){
+function bars(vals,labels,color,h){
+  h=h||150;
+  const w=560,pad=26,n=vals.length;
+  if(n<1)return `<div class="msg">warming up</div>`;
+  const max=Math.max(...vals.map(Math.abs),1);
+  const bw=Math.max(2,Math.min(20,(w-2*pad)/n-2));
+  const zero=h/2;
+  const rects=vals.map((v,i)=>{
+    const bh=Math.abs(v)/max*(h/2-pad);
+    const x=pad+i*((w-2*pad)/n)+((w-2*pad)/n-bw)/2;
+    const y=v>=0?zero-bh:zero;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${color}"><title>${esc(labels[i])}: ${esc(fmt(v))}</title></rect>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;display:block;margin-top:6px">`+
+    `<line x1="${pad}" y1="${zero}" x2="${w-pad}" y2="${zero}" stroke="#30363d"/>`+
+    rects+`</svg>`+
+    `<div style="display:flex;justify-content:space-between;color:var(--mut);font-size:11px;margin-top:2px"><span>${esc(labels[0])}</span><span>${esc(labels[n-1])}</span></div>`;
+}
+function chartCard(title,body,big){
+  return `<div class="card"><span>${esc(title)}</span><b>${esc(big)}</b>${body}</div>`;
+}
+function renderOverview(){
   const s=trendsData.series||[],host=$("#tcharts");
-  if(s.length<2){host.innerHTML=`<div class="msg">trend history is warming up (${s.length} day${s.length===1?"":"s"} recorded) &mdash; charts appear after the first daily snapshots</div>`;return;}
+  if(!s.length){host.innerHTML=`<div class="msg">no history yet</div>`;return;}
   const labels=s.map(d=>d.date),last=s[s.length-1];
+  if(s.length<2){
+    host.innerHTML=`<div class="msg">first snapshot recorded (${esc(labels[0])}) &mdash; charts and diffs appear tomorrow</div>`+
+      `<div class="mini-cards">`+
+      `<div class="card"><span>projects</span><b>${fmt(last.projects)}</b></div>`+
+      `<div class="card"><span>downloads</span><b>${fmt(last.downloads)}</b></div>`+
+      `<div class="card"><span>followers</span><b>${fmt(last.followers)}</b></div>`+
+      `<div class="card"><span>versions</span><b>${fmt(last.versions)}</b></div>`+
+      `</div>`;
+    return;
+  }
+  const sum=k=>s.reduce((a,d)=>a+(d[k]||0),0);
   host.innerHTML=`<div class="cards">`+
-    chartCard("total downloads",s.map(d=>d.downloads||0),labels,"#58a6ff",fmt(last.downloads))+
-    chartCard("projects tracked",s.map(d=>d.projects||0),labels,"#3fb950",fmt(last.projects))+
-    chartCard("new projects per day",s.map(d=>d.new||0),labels,"#f0883e","+"+fmt(s.reduce((a,d)=>a+(d.new||0),0))+" in history")+
+    chartCard("total downloads",spark(s.map(d=>d.downloads||0),labels,"#58a6ff"),fmt(last.downloads))+
+    chartCard("projects tracked",spark(s.map(d=>d.projects||0),labels,"#3fb950"),fmt(last.projects))+
+    chartCard("daily download gain",bars(s.slice(1).map(d=>d.dl_delta||0),labels.slice(1),"#58a6ff"),"+"+fmt(sum("dl_delta"))+" total")+
+    chartCard("new projects / day",bars(s.slice(1).map(d=>d.new||0),labels.slice(1),"#f0883e"),"+"+fmt(sum("new"))+" in history")+
     `</div>`;
+  const sc=trendsData.status_counts||{};
+  const scKeys=Object.keys(sc).sort((a,b)=>sc[b]-sc[a]);
+  const scTotal=scKeys.reduce((a,k)=>a+sc[k],0)||1;
+  $("#tstatus").innerHTML=scKeys.length?`<div class="card"><span>project status breakdown</span>`+
+    `<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:8px 0">`+
+    scKeys.map((k,i)=>`<div title="${esc(k)}: ${fmt(sc[k])}" style="width:${(sc[k]/scTotal*100).toFixed(2)}%;background:${["#3fb950","#58a6ff","#f0883e","#a371f7","#8b949e","#db61a2"][i%6]}"></div>`).join("")+
+    `</div><div style="display:flex;flex-wrap:wrap;gap:12px;color:var(--mut);font-size:12px">`+
+    scKeys.map((k,i)=>`<span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${["#3fb950","#58a6ff","#f0883e","#a371f7","#8b949e","#db61a2"][i%6]};margin-right:5px"></i>${esc(k)} ${fmt(sc[k])}</span>`).join("")+
+    `</div></div>`:"";
+  const dd=trendsData.daily_diffs||[];
+  if(dd.length){
+    $("#tdaily").innerHTML=`<table><thead><tr><th>date</th><th class="num">downloads gained</th><th class="num">new</th><th class="num">removed</th><th class="num">net</th><th class="num">rows changed</th></tr></thead><tbody>`+
+      dd.slice(-30).reverse().map(d=>`<tr><td>${esc(d.date)}</td><td class="num">+${fmt(d.dl_delta)}</td><td class="num">+${fmt(d.new)}</td><td class="num">-${fmt(d.removed)}</td><td class="num">${d.net_new>=0?"+":""}${fmt(d.net_new)}</td><td class="num">${fmt(d.changed)}</td></tr>`).join("")+
+      `</tbody></table>`;
+  }else $("#tdaily").innerHTML="";
+}
+function renderVelocity(){
+  const win=$("#tvel-win").value;
+  const v=(trendsData.velocity||{})[win]||{since:null,rows:[]};
+  $("#tvel-info").textContent=v.since?"daily average since "+v.since:"";
+  const host=$("#tvel-table");
+  if(!v.rows.length){$("#tvel-chart").innerHTML="";host.innerHTML=`<div class="msg">not enough history yet</div>`;return;}
+  const top=v.rows.slice(0,20);
+  const labels=top.map(r=>r.title||r.slug||r.id);
+  $("#tvel-chart").innerHTML=`<div class="card"><span>top daily download velocity &mdash; last ${esc(win)} days</span>`+
+    bars(top.map(r=>r.velocity),labels,"#3fb950",180)+`</div>`;
+  host.innerHTML=`<table><thead><tr><th class="rank">#</th><th>project</th><th class="num">downloads/day</th><th class="num">gained (${esc(win)}d)</th><th class="num">total</th></tr></thead><tbody>`+
+    v.rows.map((r,i)=>`<tr><td class="rank">${i+1}</td><td class="title-cell">`+
+      `<a href="https://modrinth.com/project/${encodeURIComponent(r.slug||r.id)}" target="_blank" rel="noopener">${esc(r.title||r.slug||r.id)}</a></td>`+
+      `<td class="num"><b>${fmt(r.velocity)}</b></td><td class="num">+${fmt(r.gained)}</td><td class="num">${fmt(r.downloads)}</td></tr>`).join("")+
+    `</tbody></table>`;
 }
 function renderGainers(){
-  const g=(trendsData.gainers||{})[$("#tw").value]||{since:null,rows:[]};
-  $("#tinfo").textContent=g.since?"gained since "+g.since:"";
+  const win=$("#tw").value,kind=$("#tm-kind").value;
+  const g=(trendsData[kind]||{})[win]||{since:null,rows:[]};
+  $("#tinfo").textContent=g.since?kind+" since "+g.since:"";
   const host=$("#tgainers");
   if(!g.rows.length){host.innerHTML=`<div class="msg">not enough history yet for this window</div>`;return;}
-  host.innerHTML=`<table><thead><tr><th class="rank">#</th><th>project</th><th class="num">downloads gained</th><th class="num">total downloads</th></tr></thead><tbody>`+
+  const isGain=kind==="gainers";
+  host.innerHTML=`<table><thead><tr><th class="rank">#</th><th>project</th><th class="num">${isGain?"downloads gained":"downloads lost"}</th><th class="num">${isGain?"growth %":"total left"}</th><th class="num">total</th></tr></thead><tbody>`+
     g.rows.map((r,i)=>`<tr><td class="rank">${i+1}</td><td class="title-cell">`+
       `<a href="https://modrinth.com/project/${encodeURIComponent(r.slug||r.id)}" target="_blank" rel="noopener">${esc(r.title||r.slug||r.id)}</a></td>`+
-      `<td class="num"><b>+${fmt(r.gained)}</b></td><td class="num">${fmt(r.downloads)}</td></tr>`).join("")+
+      `<td class="num"><b>${isGain?"+":"-"}${fmt(isGain?r.gained:r.lost)}</b></td>`+
+      `<td class="num">${isGain?(r.pct!=null?"+"+r.pct+"%":"new"):""}</td>`+
+      `<td class="num">${fmt(r.downloads)}</td></tr>`).join("")+
     `</tbody></table>`;
+}
+let texDays=[];
+async function loadDiffDay(d){
+  $("#tex-info").textContent="";
+  $("#tex-summary").innerHTML="";
+  $("#tex-table").innerHTML=`<div class="msg">loading&hellip;</div>`;
+  let diff;
+  try{diff=await getJSON("diff-"+d+".json");}
+  catch(e){
+    $("#tex-table").innerHTML=`<div class="msg">diff detail not available (${esc(e.message)}) &mdash; details are kept for the last 30 days</div>`;
+    return;
+  }
+  const c=diff.counts||{};
+  $("#tex-summary").innerHTML=`<div class="mini-cards">`+
+    `<div class="card"><span>new projects</span><b>+${fmt(c.new)}</b></div>`+
+    `<div class="card"><span>rows changed</span><b>${fmt(c.changed)}</b></div>`+
+    `<div class="card"><span>removed</span><b>-${fmt(c.removed)}</b></div>`+
+    `</div>`;
+  const nl=(diff.new||[]).slice(0,25),cl=(diff.changed||[]).slice(0,25),rl=(diff.removed||[]).slice(0,25);
+  $("#tex-table").innerHTML=
+    (nl.length?`<div class="card" style="margin-bottom:12px"><span>newest projects that day (top by downloads)</span>`+
+      `<table><thead><tr><th>project</th><th class="num">downloads</th><th class="num">followers</th></tr></thead><tbody>`+
+      nl.map(r=>`<tr><td class="title-cell">`+
+        (r.slug?`<a href="https://modrinth.com/project/${encodeURIComponent(r.slug)}" target="_blank" rel="noopener">${esc(r.title||r.slug)}</a>`:esc(r.title||r.id))+
+        `</td><td class="num">${fmt(r.downloads)}</td><td class="num">${fmt(r.followers)}</td></tr>`).join("")+
+      `</tbody></table></div>`:"")+
+    (cl.length?`<div class="card" style="margin-bottom:12px"><span>biggest download gains that day</span>`+
+      `<table><thead><tr><th>project</th><th class="num">gained</th><th class="num">was</th><th class="num">now</th></tr></thead><tbody>`+
+      cl.map(r=>`<tr><td class="title-cell">`+
+        (r.slug?`<a href="https://modrinth.com/project/${encodeURIComponent(r.slug)}" target="_blank" rel="noopener">${esc(r.title||r.slug)}</a>`:esc(r.title||r.id))+
+        `</td><td class="num"><b>+${fmt(r.gained)}</b></td><td class="num">${fmt(r.old_downloads)}</td><td class="num">${fmt(r.downloads)}</td></tr>`).join("")+
+      `</tbody></table></div>`:"")+
+    (rl.length?`<div class="card"><span>removed project ids (sample)</span>`+
+      `<div style="color:var(--mut);font-size:12px;font-family:monospace;word-break:break-all;padding:8px 0">${rl.map(esc).join(", ")}</div></div>`:"");
 }
 async function startTrends(){
   if(trendsStarted)return;trendsStarted=true;
@@ -491,9 +635,23 @@ async function startTrends(){
     $("#tcharts").innerHTML=`<div class="msg">trend history starts after the first daily snapshot (${esc(e.message)})</div>`;
     return;
   }
+  document.querySelectorAll("#trends nav button").forEach(b=>b.onclick=()=>{
+    document.querySelectorAll("#trends nav button").forEach(x=>x.classList.remove("on"));
+    document.querySelectorAll("#trends .tsub").forEach(x=>x.classList.remove("on"));
+    b.classList.add("on");
+    $("#t-"+b.dataset.t).classList.add("on");
+  });
   $("#tw").onchange=()=>renderGainers();
-  renderTrendCharts();
+  $("#tm-kind").onchange=()=>renderGainers();
+  $("#tvel-win").onchange=()=>renderVelocity();
+  texDays=(trendsData.daily_diffs||[]).map(d=>d.date).reverse();
+  const sel=$("#tex-day");
+  sel.innerHTML=texDays.map(d=>`<option value="${d}">${d}</option>`).join("")||`<option value="">no days yet</option>`;
+  sel.onchange=()=>loadDiffDay(sel.value);
+  renderOverview();
+  renderVelocity();
   renderGainers();
+  if(texDays.length)loadDiffDay(texDays[0]);
 }
 
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{

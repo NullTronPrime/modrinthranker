@@ -663,10 +663,10 @@ def load_json(path):
 
 def lean_map(c):
     rows = {}
-    for i, d, f, v, t, s, p in c.execute(
-        "SELECT id, downloads, followers, versions, title, slug, published FROM projects"
+    for i, d, f, v, t, s, p, st, up in c.execute(
+        "SELECT id, downloads, followers, versions, title, slug, published, status, updated FROM projects"
     ):
-        rows[i] = (d or 0, f or 0, v or 0, t, s, p)
+        rows[i] = (d or 0, f or 0, v or 0, t, s, p, st or "", up or "")
     return rows
 
 
@@ -701,7 +701,7 @@ def state_at(upto):
         for r in part.get("new", []):
             st[r[0]] = [r[1], r[2], r[3]]
         for r in part.get("changed", []):
-            st[r[0]] = [r[1], r[2], r[3]]
+            st[r[0]] = [r[-3], r[-2], r[-1]]
         for i in part.get("removed", []):
             st.pop(i, None)
         last = d
@@ -710,34 +710,130 @@ def state_at(upto):
 
 def emit_analytics(index, cur):
     days = index.get("days", [])
-    series = [
-        {"date": d["date"], "projects": d.get("projects"),
-         "downloads": d.get("downloads"), "new": d.get("new", 0)}
-        for d in days
-    ]
+    series = []
+    for idx, d in enumerate(days):
+        prev = days[idx - 1] if idx > 0 else None
+        dl = d.get("downloads", 0) or 0
+        pv = (prev.get("downloads", 0) or 0) if prev else dl
+        pr = (prev.get("projects", 0) or 0) if prev else d.get("projects", 0) or 0
+        series.append({
+            "date": d["date"], "projects": d.get("projects", 0) or 0,
+            "downloads": dl, "new": d.get("new", 0) or 0,
+            "removed": d.get("removed", 0) or 0,
+            "changed": d.get("changed", 0) or 0,
+            "followers": d.get("followers", 0) or 0,
+            "versions": d.get("versions", 0) or 0,
+            "dl_delta": dl - pv,
+            "proj_delta": (d.get("projects", 0) or 0) - pr,
+            "net_new": (d.get("new", 0) or 0) - (d.get("removed", 0) or 0),
+        })
+    status_counts = days[-1].get("status", {}) if days else {}
     gainers = {}
+    losers = {}
+    velocity = {}
     today = days[-1]["date"] if days else None
     for win in (7, 30, 90):
         cutoff = (date.fromisoformat(today) - timedelta(days=win)).isoformat() if today else None
         base, since = state_at(cutoff) if cutoff else (None, None)
         if base is None:
             gainers[str(win)] = {"since": None, "rows": []}
+            losers[str(win)] = {"since": None, "rows": []}
+            velocity[str(win)] = {"since": None, "days": win, "rows": []}
             continue
-        tops = sorted(
-            ((v[0] - base[i][0], i) for i, v in cur.items() if i in base and v[0] > base[i][0]),
-            reverse=True,
-        )[:50]
+        gains = []
+        for i, v in cur.items():
+            if i in base:
+                g = v[0] - base[i][0]
+                if g > 0:
+                    old_dl = base[i][0]
+                    pct = (g / old_dl * 100) if old_dl > 0 else float("inf")
+                    gains.append((g, pct, i, v[0]))
+        gains.sort(key=lambda x: -x[0])
         gainers[str(win)] = {
             "since": since,
             "rows": [
                 {"id": i, "title": cur[i][3], "slug": cur[i][4],
-                 "gained": g, "downloads": cur[i][0]}
-                for g, i in tops
+                 "gained": g, "downloads": dl, "pct": round(pct, 2) if pct != float("inf") else None}
+                for g, pct, i, dl in gains[:50]
             ],
         }
+        losses = []
+        for i, v in cur.items():
+            if i in base:
+                l = base[i][0] - v[0]
+                if l > 0:
+                    losses.append((l, i, v[0]))
+        losses.sort(key=lambda x: -x[0])
+        losers[str(win)] = {
+            "since": since,
+            "rows": [
+                {"id": i, "title": cur[i][3], "slug": cur[i][4],
+                 "lost": l, "downloads": dl}
+                for l, i, dl in losses[:30]
+            ],
+        }
+        velocity[str(win)] = {
+            "since": since, "days": win,
+            "rows": [
+                {"id": i, "title": cur[i][3], "slug": cur[i][4],
+                 "velocity": round(g / max(win, 1), 1), "gained": g, "downloads": dl}
+                for g, pct, i, dl in gains[:50]
+            ],
+        }
+    daily_diffs = []
+    for s in series[1:]:
+        daily_diffs.append({
+            "date": s["date"], "dl_delta": s["dl_delta"],
+            "new": s["new"], "removed": s["removed"],
+            "changed": s["changed"], "net_new": s["net_new"],
+        })
+    delta_files = sorted((HIST / "deltas").glob("delta-*.json")) if (HIST / "deltas").exists() else []
+    keep = {f.stem[len("delta-"):] for f in delta_files[-30:]}
+    for f in delta_files[:-30]:
+        old = PUB / ("diff-%s.json" % f.stem[len("delta-"):])
+        if old.exists():
+            old.unlink()
+    for f in delta_files:
+        d = f.stem[len("delta-"):]
+        if d not in keep:
+            continue
+        part = load_json(f) or {}
+        new_rows = []
+        for r in part.get("new", [])[:50]:
+            new_rows.append({"id": r[0], "title": r[4] if len(r) > 4 else None,
+                             "slug": r[5] if len(r) > 5 else None,
+                             "downloads": r[1], "followers": r[2], "versions": r[3]})
+        ch_rows = []
+        for r in part.get("changed", []):
+            g = (r[-3] - r[1]) if len(r) >= 7 else 0
+            if g <= 0:
+                continue
+            meta = cur.get(r[0])
+            ch_rows.append({"id": r[0], "title": meta[3] if meta else None,
+                            "slug": meta[4] if meta else None,
+                            "old_downloads": r[1], "downloads": r[-3], "gained": g})
+        ch_rows.sort(key=lambda x: -x["gained"])
+        ch_rows = ch_rows[:50]
+        write_if_changed(
+            PUB / ("diff-%s.json" % d),
+            json.dumps({"date": d,
+                        "counts": {"new": len(part.get("new", [])),
+                                   "changed": len(part.get("changed", [])),
+                                   "removed": len(part.get("removed", []))},
+                        "new": new_rows, "changed": ch_rows,
+                        "removed": part.get("removed", [])[:100]}),
+        )
     write_if_changed(
         PUB / "analytics.json",
-        json.dumps({"updated": int(time.time()), "series": series, "gainers": gainers}),
+        json.dumps({
+            "updated": int(time.time()),
+            "series": series,
+            "daily_diffs": daily_diffs,
+            "status_counts": status_counts,
+            "gainers": gainers,
+            "losers": losers,
+            "velocity": velocity,
+        }),
     )
 
 
@@ -752,7 +848,14 @@ def snapshot(c):
     totals = {
         "projects": len(cur),
         "downloads": sum(v[0] for v in cur.values()),
+        "followers": sum(v[1] for v in cur.values()),
+        "versions": sum(v[2] for v in cur.values()),
     }
+    sc = {}
+    for v in cur.values():
+        k = v[6] or "unknown"
+        sc[k] = sc.get(k, 0) + 1
+    totals["status"] = sc
     prev = load_json(HIST / "latest.json")
     if prev is None:
         rows = lean_rows(cur)
@@ -760,13 +863,23 @@ def snapshot(c):
         write_if_changed(HIST / "latest.json", payload)
         write_if_changed(HIST / ("full-%s.json" % today), payload)
         index = {"days": [{"date": today, "new": 0, "changed": 0, "removed": 0,
-                           "projects": totals["projects"], "downloads": totals["downloads"]}],
+                           "projects": totals["projects"], "downloads": totals["downloads"],
+                           "followers": totals["followers"], "versions": totals["versions"],
+                           "status": totals["status"]}],
                  "last_full": today}
         write_if_changed(idx_path, json.dumps(index, indent=1))
         emit_analytics(index, cur)
         log("snapshot baseline %s" % json.dumps(totals))
         return totals
     if any(d["date"] == today for d in index.get("days", [])):
+        for d in index["days"]:
+            if d["date"] == today:
+                d["projects"] = totals["projects"]
+                d["downloads"] = totals["downloads"]
+                d["followers"] = totals["followers"]
+                d["versions"] = totals["versions"]
+                d["status"] = totals["status"]
+        write_if_changed(idx_path, json.dumps(index, indent=1))
         emit_analytics(index, cur)
         log("snapshot already recorded for %s, analytics refreshed" % today)
         return totals
@@ -777,7 +890,7 @@ def snapshot(c):
         if old is None:
             new.append([i, v[0], v[1], v[2], v[3], v[4], v[5]])
         elif old != (v[0], v[1], v[2]):
-            changed.append([i, v[0], v[1], v[2]])
+            changed.append([i, old[0], old[1], old[2], v[0], v[1], v[2]])
     for i in prev_rows:
         if i not in cur:
             removed.append(i)
@@ -793,7 +906,8 @@ def snapshot(c):
     index.setdefault("days", []).append(
         {"date": today, "new": len(new), "changed": len(changed),
          "removed": len(removed), "projects": totals["projects"],
-         "downloads": totals["downloads"]}
+         "downloads": totals["downloads"], "followers": totals["followers"],
+         "versions": totals["versions"], "status": totals["status"]}
     )
     last_full = index.get("last_full")
     if not last_full or (date.fromisoformat(today) - date.fromisoformat(last_full)).days >= 7:
