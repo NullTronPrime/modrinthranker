@@ -529,11 +529,11 @@ def emit_download_curve(c):
             % (x, MT + PH + 20, format(t, ",d")))
     parts.append(
         '<text x="%d" y="%d" fill="#e0e0e4" font-size="14" font-weight="600">'
-        'Downloads by rank &mdash; all %s projects (pre-rendered, log scale)'
+        'Downloads by rank &#8212; all %s projects (pre-rendered, log scale)'
         '</text>' % (ML, 20, _xml_esc(format(n, ",d"))))
     parts.append(
         '<text x="%d" y="%d" fill="#8a8a93" font-size="12">rank 1 (most '
-        'downloaded) on the left &middot; median %s &middot; max %s</text>'
+        'downloaded) on the left &#183; median %s &#183; max %s</text>'
         % (ML, H - 8, _xml_esc(format(median, ",d")),
             _xml_esc(format(rows[0], ",d"))))
     parts.append('</svg>')
@@ -1349,6 +1349,10 @@ def emit_hourly(c):
         emit_mod_trends(c)
     except (sqlite3.Error, OSError, ValueError) as e:
         log("mod trends skipped: %s" % e)
+    try:
+        emit_download_curve(c)
+    except (sqlite3.Error, OSError, ValueError) as e:
+        log("download curve skipped: %s" % e)
     log("hourly diff %s changed=%d new=%d" % (hr, len(ch_ids), len(new_rows)))
     return diff["counts"]
 

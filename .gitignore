@@ -29,3 +29,4 @@ refresh.err
 node_modules/
 package-lock.json
 real_dom_test.js
+.env
