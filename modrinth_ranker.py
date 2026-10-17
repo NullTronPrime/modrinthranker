@@ -1,4 +1,5 @@
 import argparse
+import gzip
 import hashlib
 import json
 import math
@@ -18,7 +19,7 @@ DATA = ROOT / "data"
 CACHE = DATA / "cache"
 PUB = Path(os.environ.get("MR_PUB", str(ROOT / "docs")))
 HIST = Path(os.environ.get("MR_HIST", str(ROOT / "history")))
-for _d in (DATA, CACHE, PUB):
+for _d in (DATA, CACHE, PUB, HIST):
     _d.mkdir(parents=True, exist_ok=True)
 DB = Path(os.environ.get("MR_DB", str(DATA / "ranks.sqlite")))
 
@@ -36,6 +37,7 @@ BULK_LIMIT = 800
 RETRIES = 8
 TTL = 24 * 3600
 CACHE_ENABLED = int(os.environ.get("MR_SMOKE", "0")) == 0
+HOURLY_MODE = False
 
 
 def log(*a):
@@ -121,6 +123,8 @@ CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS team_projects(
   team_id TEXT, project_id TEXT,
   PRIMARY KEY(team_id, project_id));
+CREATE TABLE IF NOT EXISTS changelog(
+  id TEXT PRIMARY KEY, a INTEGER, b INTEGER, c INTEGER, kind TEXT);
 CREATE INDEX IF NOT EXISTS ix_dl ON projects(downloads DESC);
 CREATE INDEX IF NOT EXISTS ix_pt_user ON project_team(user_id);
 CREATE INDEX IF NOT EXISTS ix_pt_proj ON project_team(project_id);
@@ -180,6 +184,16 @@ def jload(v, default):
 def upsert_project(c, p, checked):
     lic = p.get("license") or {}
     license_id = lic.get("id") if isinstance(lic, dict) else lic
+    new = (
+        p.get("downloads", 0) or 0,
+        p.get("followers", 0) or 0,
+        _count_versions(p),
+    )
+    old = None
+    if HOURLY_MODE:
+        old = c.execute(
+            "SELECT downloads, followers, versions FROM projects WHERE id=?", (p["id"],)
+        ).fetchone()
     c.execute(
         """INSERT INTO projects VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET
@@ -192,8 +206,7 @@ def upsert_project(c, p, checked):
             p["id"], p.get("slug"), p.get("title"), p.get("project_type"),
             jdump(p.get("categories")), jdump(p.get("additional_categories")),
             jdump(p.get("client_side")), jdump(p.get("server_side")),
-            p.get("downloads", 0) or 0, p.get("followers", 0) or 0,
-            len(p.get("versions") or []) or p.get("versions", 0) or 0,
+            new[0], new[1], new[2],
             p.get("status"), p.get("published"), p.get("updated"),
             p.get("team"), p.get("organization"), p.get("author"), p.get("author_id"),
             p.get("icon_url"), p.get("color"), 1 if p.get("featured") else 0,
@@ -202,6 +215,14 @@ def upsert_project(c, p, checked):
             checked,
         ),
     )
+    if HOURLY_MODE:
+        if old is None:
+            c.execute("INSERT OR REPLACE INTO changelog VALUES(?,?,?,?,?)",
+                      (p["id"], new[0], new[1], new[2], "new"))
+        elif (old[0] or 0, old[1] or 0, old[2] or 0) != new:
+            c.execute("INSERT OR REPLACE INTO changelog VALUES(?,?,?,?,?)",
+                      (p["id"], new[0] - (old[0] or 0), new[1] - (old[1] or 0),
+                       new[2] - (old[2] or 0), "changed"))
 
 
 def ingest_ids(client, c, ids, checked):
@@ -313,7 +334,7 @@ def crawl_deps(client, c, top_k, ids=None):
                     edges += 1
             for v in d.get("versions") or []:
                 for dep in v.get("dependencies") or []:
-                    target = dep.get("project_id") or dep.get("version_id")
+                    target = dep.get("project_id")
                     if target:
                         c.execute("INSERT OR IGNORE INTO deps VALUES(?,?,?)",
                                   (pid, target, dep.get("dependency_type")))
@@ -376,6 +397,268 @@ def build_graph(c, projects, inbound, limit=None):
         if src in ids and tgt in ids:
             edges.append({"source": "p:" + src, "target": "p:" + tgt, "kind": "depends", "type": kind})
     return {"nodes": nodes, "edges": edges}
+
+
+CURVE_POINTS = int(os.environ.get("MR_CURVE_POINTS", "1200"))
+TREND_TRACK = int(os.environ.get("MR_TREND_TRACK", "2000"))
+TREND_DAYS = int(os.environ.get("MR_TREND_DAYS", "365"))
+
+
+def _count_versions(p):
+    v = p.get("versions")
+    if isinstance(v, list):
+        return len(v)
+    if isinstance(v, int):
+        return v
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _xml_esc(s):
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def emit_download_curve(c):
+    """Rank-vs-downloads curve over ALL projects.
+
+    The heavy work (sorting ~all mods) happens here once at publish time.
+    The frontend only displays the pre-rendered SVG image + a small
+    downsampled JSON, so no per-visit calculation is needed.
+    """
+    rows = [r[0] or 0 for r in c.execute(
+        "SELECT downloads FROM projects ORDER BY downloads DESC")]
+    n = len(rows)
+    if not n:
+        return {"count": 0}
+    total = sum(rows)
+    srt = sorted(rows)
+    median = srt[n // 2]
+    mean = total / n
+    top_rows = c.execute(
+        "SELECT id, title, slug, downloads FROM projects "
+        "ORDER BY downloads DESC LIMIT 10").fetchall()
+    top = [{"id": r[0], "title": r[1], "slug": r[2], "downloads": r[3] or 0}
+           for r in top_rows]
+    pts = CURVE_POINTS
+    if n <= pts:
+        sampled = [[i + 1, rows[i]] for i in range(n)]
+    else:
+        sampled = [[int(round(i * (n - 1) / (pts - 1))) + 1,
+                    rows[int(round(i * (n - 1) / (pts - 1)))]]
+                   for i in range(pts)]
+    payload = {
+        "generated": int(time.time()),
+        "count": n,
+        "max": rows[0],
+        "min": rows[-1],
+        "median": median,
+        "mean": round(mean, 1),
+        "total": total,
+        "points": sampled,
+        "top": top,
+    }
+    write_if_changed(PUB / "download-curve.json", json.dumps(payload))
+    # Pre-rendered SVG image (log-scale y). Static file: no client compute.
+    W, H = 1160, 440
+    ML, MR, MT, MB = 76, 18, 30, 46
+    PW, PH = W - ML - MR, H - MT - MB
+    import math as _math
+    ymax = max(10, rows[0])
+    ytop = 10 ** _math.ceil(_math.log10(ymax))
+    ymin = 1
+    lo, hi = _math.log10(ymin), _math.log10(ytop)
+
+    def X(rank):
+        return ML + (rank - 1) / max(n - 1, 1) * PW
+
+    def Y(dl):
+        v = max(dl, ymin)
+        return MT + PH - (_math.log10(v) - lo) / (hi - lo) * PH
+
+    parts = []
+    parts.append(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" '
+        'role="img" aria-label="downloads by rank">' % (W, H))
+    parts.append('<rect width="%d" height="%d" fill="#1a1a1d"/>' % (W, H))
+    # gridlines: powers of 10
+    p = 1
+    while p <= ytop:
+        y = Y(p)
+        parts.append(
+            '<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#2b2b30" '
+            'stroke-width="1"/>' % (ML, y, W - MR, y))
+        label = "1" if p == 1 else ("1M" if p == 1000000 else
+               ("%dM" % (p // 1000000) if p >= 1000000 else
+                ("%dk" % (p // 1000) if p >= 1000 else str(p))))
+        parts.append(
+            '<text x="%d" y="%.1f" fill="#8a8a93" font-size="12" '
+            'text-anchor="end" dominant-baseline="middle">%s</text>'
+            % (ML - 8, y, label))
+        p *= 10
+    # bars (downsampled ranks, computed from all n mods)
+    bw = max(1.0, PW / len(sampled) - 0.4)
+    for rank, dl in sampled:
+        x = X(rank)
+        y = Y(dl)
+        parts.append(
+            '<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
+            'fill="#1bd96a" opacity="0.55"><title>rank %s: %s downloads'
+            '</title></rect>'
+            % (x - bw / 2, y, bw, MT + PH - y,
+               _xml_esc(format(rank, ",d")),
+               _xml_esc(format(dl, ",d"))))
+    # spine line through sampled points
+    d = "M" + " L".join("%.1f %.1f" % (X(r), Y(v)) for r, v in sampled)
+    parts.append('<path d="%s" fill="none" stroke="#1bd96a" stroke-width="1.6" '
+                 'stroke-linejoin="round"/>' % d)
+    # x ticks
+    cand = [1, 10, 100, 1000, 10000, 25000, 50000, 100000, 150000, 200000]
+    for t in cand:
+        if t > n:
+            break
+        x = X(t)
+        parts.append(
+            '<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="#2b2b30"/>'
+            % (x, MT + PH, x, MT + PH + 5))
+        parts.append(
+            '<text x="%.1f" y="%d" fill="#8a8a93" font-size="12" '
+            'text-anchor="middle">%s</text>'
+            % (x, MT + PH + 20, format(t, ",d")))
+    parts.append(
+        '<text x="%d" y="%d" fill="#e0e0e4" font-size="14" font-weight="600">'
+        'Downloads by rank &mdash; all %s projects (pre-rendered, log scale)'
+        '</text>' % (ML, 20, _xml_esc(format(n, ",d"))))
+    parts.append(
+        '<text x="%d" y="%d" fill="#8a8a93" font-size="12">rank 1 (most '
+        'downloaded) on the left &middot; median %s &middot; max %s</text>'
+        % (ML, H - 8, _xml_esc(format(median, ",d")),
+            _xml_esc(format(rows[0], ",d"))))
+    parts.append('</svg>')
+    write_if_changed(PUB / "download-curve.svg", "".join(parts))
+    return {"count": n, "max": rows[0], "median": median, "total": total}
+
+
+def _load_series():
+    try:
+        data = json.loads((HIST / "mod-series.json").read_text("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_series(series):
+    HIST.mkdir(exist_ok=True)
+    tmp = HIST / "mod-series.json.tmp"
+    tmp.write_text(json.dumps(series, separators=(",", ":")), "utf-8")
+    tmp.replace(HIST / "mod-series.json")
+
+
+def record_mod_series(c, today=None, cur=None):
+    """Append today's downloads for the top tracked mods.
+
+    Idempotent for a given date. This is what powers the per-mod
+    "downloads per day" trend view; history accumulates with each snapshot.
+    """
+    today = today or time.strftime("%Y-%m-%d", time.gmtime())
+    if cur is None:
+        cur = {}
+        for i, d, t, s in c.execute(
+                "SELECT id, downloads, title, slug FROM projects"):
+            cur[i] = (d or 0, t, s)
+    else:
+        # lean_map rows are (dl, f, v, title, slug, published, status, updated)
+        cur = {i: (v[0], v[3], v[4]) for i, v in cur.items()}
+    ranked = sorted(cur.items(), key=lambda kv: -kv[1][0])
+    tracked = {i for i, _ in ranked[:TREND_TRACK]}
+    series = _load_series()
+    backfilled = False
+    if not series:
+        # Backfill from existing snapshot history so the trend view has
+        # something on day one (usually a single point).
+        try:
+            index = load_json(HIST / "index.json") or {}
+            for day in (index.get("days") or [])[-TREND_DAYS:]:
+                d = day.get("date")
+                if not d:
+                    continue
+                st, _ = state_at(d)
+                if not st:
+                    continue
+                for i, _ in ranked[:TREND_TRACK]:
+                    # cumulative downloads never fall, so a historical value
+                    # above today's means the database was rebuilt from a
+                    # different crawl: drop it instead of faking a huge drop
+                    if i in st and st[i][0] <= cur[i][0]:
+                        lst = series.setdefault(i, [])
+                        if not lst or lst[-1][0] != d:
+                            lst.append([d, st[i][0]])
+            backfilled = True
+        except (OSError, ValueError):
+            pass
+    for i in tracked:
+        dl = cur[i][0]
+        lst = series.setdefault(i, [])
+        if lst and lst[-1][0] == today:
+            lst[-1][1] = dl
+        elif lst and lst[-1][1] > dl:
+            # cumulative downloads only grow; a lower reading means the
+            # census database was rebuilt from a different crawl
+            lst = series[i] = []
+            lst.append([today, dl])
+        else:
+            lst.append([today, dl])
+        del lst[:-TREND_DAYS]
+    if len(series) > TREND_TRACK * 2:
+        keep = tracked + set()
+        for i in list(series.keys()):
+            if i not in tracked and i not in cur:
+                del series[i]
+            if len(series) <= TREND_TRACK * 2:
+                break
+    _save_series(series)
+    return {"tracked": len(tracked), "stored": len(series),
+            "backfilled": backfilled}
+
+
+def emit_mod_trends(c, today=None):
+    today = today or time.strftime("%Y-%m-%d", time.gmtime())
+    info = record_mod_series(c, today)
+    series = _load_series()
+    meta_rows = {}
+    for i, t, s, d in c.execute(
+            "SELECT id, title, slug, downloads FROM projects"):
+        meta_rows[i] = (t, s, d or 0)
+    mods = []
+    for i, lst in series.items():
+        m = meta_rows.get(i)
+        if not m:
+            continue
+        lst = lst[-TREND_DAYS:]
+        first = lst[0][1] if lst else 0
+        last = lst[-1][1] if lst else 0
+        span = max(len(lst) - 1, 1)
+        mods.append({
+            "id": i, "title": m[0], "slug": m[1], "downloads": m[2],
+            "points": len(lst),
+            "first": first, "last": last,
+            "gained": last - first,
+            "per_day": round((last - first) / span, 1),
+            "series": lst,
+        })
+    mods.sort(key=lambda m: -m["downloads"])
+    payload = {
+        "generated": int(time.time()),
+        "tracked": info.get("tracked", 0),
+        "count": len(mods),
+        "days": TREND_DAYS,
+        "mods": mods[:TREND_TRACK],
+    }
+    write_gz(PUB / "mod-trends.json.gz", payload)
+    (PUB / "mod-trends.json").unlink(missing_ok=True)
+    return {"count": len(mods)}
 
 
 def emit(client, c, light=False):
@@ -489,9 +772,11 @@ def emit(client, c, light=False):
     if light:
         titles = {}
         slugs = {}
-        for i, t, s in c.execute("SELECT id, title, slug FROM projects"):
+        dls = {}
+        for i, t, s, d in c.execute("SELECT id, title, slug, downloads FROM projects"):
             titles[i] = t
             slugs[i] = s
+            dls[i] = d or 0
         inbound = {}
         for tgt, cnt in c.execute(
             "SELECT dep_project_id, COUNT(DISTINCT project_id) FROM deps GROUP BY dep_project_id"
@@ -503,7 +788,8 @@ def emit(client, c, light=False):
             PUB / "depended.json",
             json.dumps(
                 [
-                    {"id": i, "title": titles.get(i), "slug": slugs.get(i), "depended_by": n}
+                    {"id": i, "title": titles.get(i), "slug": slugs.get(i),
+                     "depended_by": n, "downloads": dls.get(i, 0)}
                     for i, n in sorted(inbound.items(), key=lambda kv: (-kv[1], kv[0]))
                     if titles.get(i)
                 ]
@@ -571,6 +857,16 @@ def emit(client, c, light=False):
     ]
     (PUB / "depended.json").write_text(json.dumps(depended), "utf-8")
     meta["depended"] = len(depended)
+    try:
+        curve = emit_download_curve(c)
+        meta["download_curve"] = curve
+    except (sqlite3.Error, OSError, ValueError) as e:
+        log("download curve skipped: %s" % e)
+    try:
+        trends = emit_mod_trends(c)
+        meta["mod_trends"] = trends
+    except (sqlite3.Error, OSError, ValueError) as e:
+        log("mod trends skipped: %s" % e)
     (PUB / "graph.json").write_text(json.dumps(build_graph(c, projects, inbound)), "utf-8")
     meta["deps_ranked"] = sum(
         1 for d in rich
@@ -596,6 +892,8 @@ def set_meta(c, key, value):
 
 
 def hourly(client, c):
+    global HOURLY_MODE
+    HOURLY_MODE = True
     checked = int(time.time())
     top_n = int(os.environ.get("MR_TOP_N", "5000"))
     slices = int(os.environ.get("MR_SLICES", "24"))
@@ -642,7 +940,8 @@ def hourly(client, c):
     set_meta(c, "slice_no", (slice_no + 1) % slices)
     set_meta(c, "last_hourly", checked)
     c.commit()
-    return {"top": len(top_ids), "slice": len(chunk), "deps": edges}
+    stats = emit_hourly(c)
+    return {"top": len(top_ids), "slice": len(chunk), "deps": edges, "diff": stats}
 
 
 def write_if_changed(path, data):
@@ -661,6 +960,35 @@ def load_json(path):
         return json.loads(path.read_text("utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def write_gz(path, obj):
+    data = gzip.compress(json.dumps(obj, separators=(",", ":")).encode("utf-8"), 9)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_bytes(data)
+    if path.exists() and path.read_bytes() == data:
+        tmp.unlink()
+        return False
+    tmp.replace(path)
+    return True
+
+
+def read_hours():
+    h = load_json(HIST / "hours.json")
+    return h if isinstance(h, list) else []
+
+
+def write_census(c, ts):
+    ids, dl, f, v = [], [], [], []
+    for i, d, fo, ve in c.execute(
+        "SELECT id, downloads, followers, versions FROM projects ORDER BY id"
+    ):
+        ids.append(i)
+        dl.append(d or 0)
+        f.append(fo or 0)
+        v.append(ve or 0)
+    return write_gz(PUB / "census.json.gz",
+                    {"v": 1, "t": ts, "n": len(ids), "ids": ids, "dl": dl, "f": f, "v": v})
 
 
 def lean_map(c):
@@ -789,48 +1117,79 @@ def emit_analytics(index, cur):
             "new": s["new"], "removed": s["removed"],
             "changed": s["changed"], "net_new": s["net_new"],
         })
+    days = index.get("days", [])
+    prevmap = {d["date"]: (days[i - 1]["date"] if i > 0 else None)
+               for i, d in enumerate(days)}
     delta_files = sorted((HIST / "deltas").glob("delta-*.json")) if (HIST / "deltas").exists() else []
     keep = {f.stem[len("delta-"):] for f in delta_files[-30:]}
     for f in delta_files[:-30]:
-        old = PUB / ("diff-%s.json" % f.stem[len("delta-"):])
-        if old.exists():
-            old.unlink()
+        d = f.stem[len("delta-"):]
+        for stale in (PUB / ("diff-%s.json" % d), PUB / ("diff-%s.json.gz" % d)):
+            if stale.exists():
+                stale.unlink()
     for f in delta_files:
         d = f.stem[len("delta-"):]
         if d not in keep:
             continue
         part = load_json(f) or {}
-        new_rows = []
-        for r in part.get("new", [])[:50]:
-            new_rows.append({"id": r[0], "title": r[4] if len(r) > 4 else None,
-                             "slug": r[5] if len(r) > 5 else None,
-                             "downloads": r[1], "followers": r[2], "versions": r[3]})
-        ch_rows = []
+        ids, ddl, df, dv = [], [], [], []
         for r in part.get("changed", []):
-            g = (r[-3] - r[1]) if len(r) >= 7 else 0
-            if g <= 0:
+            if len(r) < 7:
                 continue
+            ids.append(r[0])
+            ddl.append(r[-3] - r[1])
+            df.append(r[-2] - r[2])
+            dv.append(r[-1] - r[3])
+        new_rows = [[r[0], r[1], r[2], r[3]] for r in part.get("new", [])]
+        removed = part.get("removed", [])
+        top_changed = []
+        for k in [k for k in sorted(range(len(ids)), key=lambda k: -ddl[k]) if ddl[k] > 0][:50]:
+            meta = cur.get(ids[k])
+            top_changed.append({"id": ids[k], "title": meta[3] if meta else None,
+                                "slug": meta[4] if meta else None, "gained": ddl[k]})
+        new_rows.sort(key=lambda r: -r[1])
+        top_new = []
+        for r in new_rows[:25]:
             meta = cur.get(r[0])
-            ch_rows.append({"id": r[0], "title": meta[3] if meta else None,
+            top_new.append({"id": r[0], "title": meta[3] if meta else None,
                             "slug": meta[4] if meta else None,
-                            "old_downloads": r[1], "downloads": r[-3], "gained": g})
-        ch_rows.sort(key=lambda x: -x["gained"])
-        ch_rows = ch_rows[:50]
-        write_if_changed(
-            PUB / ("diff-%s.json" % d),
-            json.dumps({"date": d,
-                        "counts": {"new": len(part.get("new", [])),
-                                   "changed": len(part.get("changed", [])),
-                                   "removed": len(part.get("removed", []))},
-                        "new": new_rows, "changed": ch_rows,
-                        "removed": part.get("removed", [])[:100]}),
-        )
+                            "downloads": r[1], "followers": r[2], "versions": r[3]})
+        (PUB / ("diff-%s.json" % d)).unlink(missing_ok=True)
+        write_gz(PUB / ("diff-%s.json.gz" % d),
+                 {"v": 1, "date": d, "base": prevmap.get(d),
+                  "counts": {"new": len(new_rows), "changed": len(ids),
+                             "removed": len(removed)},
+                  "ch": [ids, ddl, df, dv], "new": new_rows, "rm": removed,
+                  "top_changed": top_changed, "top_new": top_new,
+                  "totals": part.get("totals", {})})
+    hours = read_hours()
+    if hours:
+        hseries = []
+        for idx, h in enumerate(hours):
+            prev = hours[idx - 1] if idx > 0 else None
+            dl = h.get("downloads", 0) or 0
+            pv = (prev.get("downloads", 0) or 0) if prev else dl
+            pr = (prev.get("projects", 0) or 0) if prev else (h.get("projects", 0) or 0)
+            hseries.append({
+                "date": h.get("date"), "projects": h.get("projects", 0) or 0,
+                "downloads": dl, "new": h.get("new", 0) or 0,
+                "removed": h.get("removed", 0) or 0, "changed": h.get("changed", 0) or 0,
+                "followers": h.get("followers", 0) or 0, "versions": h.get("versions", 0) or 0,
+                "dl_delta": dl - pv, "proj_delta": (h.get("projects", 0) or 0) - pr,
+                "net_new": (h.get("new", 0) or 0) - (h.get("removed", 0) or 0),
+            })
+        series = hseries
+    keys = [re.sub(r"\.json(\.gz)?$", "", p.name[len("diff-"):])
+            for p in PUB.glob("diff-*") if p.name.endswith((".json", ".json.gz"))]
+    keys = sorted(set(keys), reverse=True)
     write_if_changed(
         PUB / "analytics.json",
         json.dumps({
             "updated": int(time.time()),
+            "granularity": "hour" if hours else "day",
             "series": series,
             "daily_diffs": daily_diffs,
+            "diffs": keys,
             "status_counts": status_counts,
             "gainers": gainers,
             "losers": losers,
@@ -847,6 +1206,10 @@ def snapshot(c):
     idx_path = HIST / "index.json"
     index = load_json(idx_path) or {"days": []}
     cur = lean_map(c)
+    try:
+        log("mod series %s" % json.dumps(record_mod_series(c, today, cur)))
+    except (sqlite3.Error, OSError, ValueError) as e:
+        log("mod series skipped: %s" % e)
     totals = {
         "projects": len(cur),
         "downloads": sum(v[0] for v in cur.values()),
@@ -867,8 +1230,9 @@ def snapshot(c):
         index = {"days": [{"date": today, "new": 0, "changed": 0, "removed": 0,
                            "projects": totals["projects"], "downloads": totals["downloads"],
                            "followers": totals["followers"], "versions": totals["versions"],
-                           "status": totals["status"]}],
-                 "last_full": today}
+                            "status": totals["status"]}],
+                 "last_full": today, "census": today}
+        write_census(c, int(time.time()))
         write_if_changed(idx_path, json.dumps(index, indent=1))
         emit_analytics(index, cur)
         log("snapshot baseline %s" % json.dumps(totals))
@@ -915,10 +1279,78 @@ def snapshot(c):
     if not last_full or (date.fromisoformat(today) - date.fromisoformat(last_full)).days >= 7:
         write_if_changed(HIST / ("full-%s.json" % today), json.dumps({"date": today, "rows": rows}))
         index["last_full"] = today
+    index["census"] = today
+    write_census(c, int(time.time()))
     write_if_changed(idx_path, json.dumps(index, indent=1))
     emit_analytics(index, cur)
     log("snapshot %s new=%d changed=%d removed=%d" % (today, len(new), len(changed), len(removed)))
     return totals
+
+
+def emit_hourly(c):
+    ts = int(time.time())
+    hr = time.strftime("%Y-%m-%dT%H", time.gmtime(ts))
+    ch_ids, ch_d, ch_f, ch_v, new_rows = [], [], [], [], []
+    for i, a, b, cc, kind in c.execute("SELECT id, a, b, c, kind FROM changelog"):
+        if kind == "new":
+            new_rows.append([i, a or 0, b or 0, cc or 0])
+        else:
+            ch_ids.append(i)
+            ch_d.append(a or 0)
+            ch_f.append(b or 0)
+            ch_v.append(cc or 0)
+    cur = lean_map(c)
+    totals = {
+        "projects": len(cur),
+        "downloads": sum(v[0] for v in cur.values()),
+        "followers": sum(v[1] for v in cur.values()),
+        "versions": sum(v[2] for v in cur.values()),
+    }
+    sc = {}
+    for v in cur.values():
+        k = v[6] or "unknown"
+        sc[k] = sc.get(k, 0) + 1
+    hours = read_hours()
+    hours.append({"t": ts, "date": hr, "projects": totals["projects"],
+                  "downloads": totals["downloads"], "followers": totals["followers"],
+                  "versions": totals["versions"], "status": sc,
+                  "new": len(new_rows), "changed": len(ch_ids), "removed": 0})
+    write_if_changed(HIST / "hours.json", json.dumps(hours, indent=1))
+
+    def brief(i):
+        r = c.execute("SELECT title, slug FROM projects WHERE id=?", (i,)).fetchone()
+        return (r[0], r[1]) if r else (None, None)
+
+    top_changed = []
+    for k in [k for k in sorted(range(len(ch_ids)), key=lambda k: -ch_d[k]) if ch_d[k] > 0][:50]:
+        t, s = brief(ch_ids[k])
+        top_changed.append({"id": ch_ids[k], "title": t, "slug": s, "gained": ch_d[k]})
+    new_rows.sort(key=lambda r: -r[1])
+    top_new = []
+    for r in new_rows[:25]:
+        t, s = brief(r[0])
+        top_new.append({"id": r[0], "title": t, "slug": s,
+                        "downloads": r[1], "followers": r[2], "versions": r[3]})
+    index = load_json(HIST / "index.json") or {}
+    diff = {"v": 1, "t": ts, "base": index.get("census"),
+            "counts": {"new": len(new_rows), "changed": len(ch_ids), "removed": 0},
+            "ch": [ch_ids, ch_d, ch_f, ch_v], "new": new_rows, "rm": [],
+            "top_changed": top_changed, "top_new": top_new, "totals": totals}
+    write_gz(PUB / ("diff-%s.json.gz" % hr), diff)
+    keep = int(os.environ.get("MR_HDIFF_KEEP", "0") or 0)
+    if keep > 0:
+        for old in sorted(PUB.glob("diff-*.json.gz"), key=lambda p: p.name,
+                          reverse=True)[keep:]:
+            old.unlink()
+    c.execute("DELETE FROM changelog")
+    c.commit()
+    emit_analytics(index, cur)
+    try:
+        emit_mod_trends(c)
+    except (sqlite3.Error, OSError, ValueError) as e:
+        log("mod trends skipped: %s" % e)
+    log("hourly diff %s changed=%d new=%d" % (hr, len(ch_ids), len(new_rows)))
+    return diff["counts"]
 
 
 def facet_label(kind, val):

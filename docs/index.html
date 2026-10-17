@@ -47,6 +47,14 @@ nav button.on{background:var(--acc);color:var(--acc-dk);border-color:var(--acc);
 .combo-list .n{color:var(--mut);font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .combo-list .empty{padding:12px 14px;color:var(--mut);cursor:default}
 .bar{display:flex;gap:10px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+.subnav{display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap}
+.subnav button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:999px;padding:6px 15px;cursor:pointer;font:500 13.5px Inter,system-ui,sans-serif}
+.subnav button:hover{border-color:var(--line2);background:var(--card2)}
+.subnav button.on{background:#1bd96a26;border-color:var(--acc);color:var(--tx)}
+.gsub{display:none}
+.gsub.on{display:block}
+.chk{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:13px;cursor:pointer;user-select:none}
+.chk input{accent-color:var(--acc);width:15px;height:15px;cursor:pointer}
 input[type=search]{flex:1;min-width:220px;background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font:400 14px Inter,system-ui,sans-serif}
 input[type=search]:focus{outline:none;border-color:var(--acc)}
 .count{color:var(--mut);font-size:13px;font-variant-numeric:tabular-nums}
@@ -81,6 +89,7 @@ td.title-cell a:hover{color:var(--acc)}
 #graphbox{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
 #graphbox svg{display:block;width:100%;height:min(70vh,640px);cursor:grab}
 #graphbox svg:active{cursor:grabbing}
+#curve-img img{display:block;width:100%;height:auto;border-radius:8px;margin-top:8px}
 .legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--mut);font-size:12.5px;margin:0 0 10px}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
 .msg{color:var(--mut);text-align:center;padding:16px;font-size:13px}
@@ -193,15 +202,65 @@ footer a{color:var(--mut);text-decoration:underline}
 <div id="authors" class="tab"></div>
 <div id="deps" class="tab"></div>
 <div id="graph" class="tab">
-  <div class="legend">
-    <span><i style="background:#1bd96a"></i>project (size = downloads)</span>
-    <span><i style="background:#6e6aff"></i>developer</span>
-    <span><i style="background:#ffb86b"></i>depends on</span>
-    <span><i style="background:#ff6b9d"></i>worked together</span>
-    <span style="color:var(--mut)">drag to pan, scroll to zoom, hover for detail</span>
+  <nav class="subnav" id="gviews">
+    <button data-g="nodes" class="on">node graph</button>
+    <button data-g="curve">download curve</button>
+    <button data-g="mod">mod trends</button>
+  </nav>
+
+  <div id="g-nodes" class="gsub on">
+    <div class="facetbar">
+      <select id="gn-kind">
+        <option value="all">all connections</option>
+        <option value="depends">dependencies only</option>
+        <option value="works">developer roles only</option>
+        <option value="collab">worked together only</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="gn-projects" checked> projects</label>
+      <label class="chk"><input type="checkbox" id="gn-users" checked> developers</label>
+      <span class="count" id="gn-info"></span>
+    </div>
+    <div class="legend">
+      <span><i style="background:#1bd96a"></i>project (size = downloads)</span>
+      <span><i style="background:#6e6aff"></i>developer</span>
+      <span><i style="background:#ffb86b"></i>depends on</span>
+      <span><i style="background:#ff6b9d"></i>worked together</span>
+      <span style="color:var(--mut)">drag to pan, scroll to zoom, hover for detail</span>
+    </div>
+    <div id="graphbox"><svg id="gsvg"></svg></div>
+    <div class="msg" id="graph-msg">loading graph&hellip;</div>
   </div>
-  <div id="graphbox"><svg id="gsvg"></svg></div>
-  <div class="msg" id="graph-msg">loading graph&hellip;</div>
+
+  <div id="g-curve" class="gsub">
+    <div class="msg" id="curve-msg">loading download curve&hellip;</div>
+    <div class="cards" id="curve-cards" style="margin-top:12px"></div>
+    <div class="card" id="curve-img" hidden>
+      <span>downloads by rank &mdash; every tracked project</span>
+      <img id="curve-svg" alt="Chart of total downloads plotted against project rank, sorted by downloads">
+    </div>
+    <div class="card" id="curve-top" hidden style="margin-top:12px">
+      <span>most downloaded projects</span>
+      <table style="margin-top:8px"><thead><tr><th class="rank">#</th><th>project</th><th class="num">downloads</th></tr></thead><tbody id="curve-top-body"></tbody></table>
+    </div>
+  </div>
+
+  <div id="g-mod" class="gsub">
+    <div class="facetbar">
+      <div class="combo" id="modcombo">
+        <input type="text" id="modsearch" placeholder="search a mod to see its daily downloads&hellip;" autocomplete="off" spellcheck="false">
+        <button type="button" id="modbtn" aria-label="show mods">&#9662;</button>
+        <div class="combo-list" id="modlist" hidden></div>
+      </div>
+      <select id="modsort">
+        <option value="downloads">sort: total downloads</option>
+        <option value="per_day">sort: downloads per day</option>
+        <option value="gained">sort: total gained</option>
+        <option value="name">sort: name A-Z</option>
+      </select>
+      <span class="count" id="mod-info"></span>
+    </div>
+    <div id="mod-host"></div>
+  </div>
 </div>
 
 <div id="sentinel"></div>
@@ -233,6 +292,17 @@ const getJSON=async u=>{
   const r=await fetch(url,{cache:"default"});
   if(!r.ok)throw new Error(r.status+" "+u);
   return r.json();
+};
+const getGZ=async u=>{
+  const url=u+(u.includes("?")?"&":"?")+"v="+BUILD;
+  const r=await fetch(url,{cache:"default"});
+  if(!r.ok)throw new Error(r.status+" "+u);
+  const buf=new Uint8Array(await r.arrayBuffer());
+  if(buf[0]===0x1f&&buf[1]===0x8b&&typeof DecompressionStream!=="undefined"){
+    const s=new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return JSON.parse(await new Response(s).text());
+  }
+  return JSON.parse(new TextDecoder().decode(buf));
 };
 const TOP=250;
 let BUILD="0";
@@ -293,10 +363,13 @@ const views={
 
 const sort={projects:{c:"downloads",d:-1},authors:{c:"downloads",d:-1},deps:{c:"depended_by",d:-1}};
 
+function matches(o,q){
+  return Object.values(o).some(x=>typeof x==="string"&&x.toLowerCase().includes(q));
+}
 function filtered(k){
   const v=views[k],q=($("#q").value||"").trim().toLowerCase();
   let list=v.data;
-  if(q)list=list.filter(o=>Object.values(o).some(x=>typeof x==="string"&&x.toLowerCase().includes(q)));
+  if(q)list=list.filter(o=>matches(o,q));
   const s=sort[k];
   if(s&&v.data.length){
     const dir=s.d;
@@ -412,7 +485,7 @@ function renderFacet(){
     return String(x??"").localeCompare(String(y??""))*facetSort.d;
   });
   const q=($("#q").value||"").trim().toLowerCase();
-  const matched=q?list.filter(o=>Object.values(o).some(x=>typeof x==="string"&&x.toLowerCase().includes(q))):list;
+  const matched=q?list.filter(o=>matches(o,q)):list;
   const shown=matched.slice(0,facetShown);
   const head=`<tr><th class="rank">#</th>`+cols.map(c=>
     `<th class="${isNum(c)?"num ":""}${/title|username/.test(c)?' style="text-align:left"':""}" data-fc="${c}">${esc(colLabel(c))}${facetSort.c===c?(facetSort.d<0?" ↓":" ↑"):""}</th>`).join("")+"</tr>";
@@ -544,6 +617,7 @@ function chartCard(title,body,big){
   return `<div class="card"><span>${esc(title)}</span><b>${esc(big)}</b>${body}</div>`;
 }
 function renderOverview(){
+  if(!trendsData){$("#tcharts").innerHTML=`<div class="msg">loading&hellip;</div>`;return;}
   const s=trendsData.series||[],host=$("#tcharts");
   if(!s.length){host.innerHTML=`<div class="msg">no history yet</div>`;return;}
   const labels=s.map(d=>d.date),last=s[s.length-1];
@@ -558,11 +632,13 @@ function renderOverview(){
     return;
   }
   const sum=k=>s.reduce((a,d)=>a+(d[k]||0),0);
+  const gran=trendsData.granularity==="hour"?"hour":"day";
+  const per=gran==="hour"?"/ hour":"/ day";
   host.innerHTML=`<div class="cards">`+
     chartCard("total downloads",spark(s.map(d=>d.downloads||0),labels,"#1bd96a"),fmt(last.downloads))+
     chartCard("projects tracked",spark(s.map(d=>d.projects||0),labels,"#6e6aff"),fmt(last.projects))+
-    chartCard("daily download gain",bars(s.slice(1).map(d=>d.dl_delta||0),labels.slice(1),"#1bd96a"),"+"+fmt(sum("dl_delta"))+" total")+
-    chartCard("new projects / day",bars(s.slice(1).map(d=>d.new||0),labels.slice(1),"#6e6aff"),"+"+fmt(sum("new"))+" in history")+
+    chartCard("download gain "+per,bars(s.slice(1).map(d=>d.dl_delta||0),labels.slice(1),"#1bd96a"),"+"+fmt(sum("dl_delta"))+" total")+
+    chartCard("projects added "+per,bars(s.slice(1).map(d=>d.new||0),labels.slice(1),"#6e6aff"),"+"+fmt(sum("new"))+" in history")+
     `</div>`;
   const sc=trendsData.status_counts||{};
   const scKeys=Object.keys(sc).sort((a,b)=>sc[b]-sc[a]);
@@ -576,7 +652,7 @@ function renderOverview(){
   const dd=trendsData.daily_diffs||[];
   if(dd.length){
     $("#tdaily").innerHTML=`<table><thead><tr><th>date</th><th class="num">downloads gained</th><th class="num">new</th><th class="num">removed</th><th class="num">net</th><th class="num">rows changed</th></tr></thead><tbody>`+
-      dd.slice(-30).reverse().map(d=>`<tr><td>${esc(d.date)}</td><td class="num">+${fmt(d.dl_delta)}</td><td class="num">+${fmt(d.new)}</td><td class="num">-${fmt(d.removed)}</td><td class="num">${d.net_new>=0?"+":""}${fmt(d.net_new)}</td><td class="num">${fmt(d.changed)}</td></tr>`).join("")+
+      dd.slice(-30).reverse().map(d=>`<tr><td>${esc(d.date)}</td><td class="num">${d.dl_delta>=0?"+":""}${fmt(d.dl_delta)}</td><td class="num">+${fmt(d.new)}</td><td class="num">-${fmt(d.removed)}</td><td class="num">${d.net_new>=0?"+":""}${fmt(d.net_new)}</td><td class="num">${fmt(d.changed)}</td></tr>`).join("")+
       `</tbody></table>`;
   }else $("#tdaily").innerHTML="";
 }
@@ -617,10 +693,13 @@ async function loadDiffDay(d){
   $("#tex-summary").innerHTML="";
   $("#tex-table").innerHTML=`<div class="msg">loading&hellip;</div>`;
   let diff;
-  try{diff=await getJSON("diff-"+d+".json");}
+  try{diff=await getGZ("diff-"+d+".json.gz");}
   catch(e){
-    $("#tex-table").innerHTML=`<div class="msg">diff detail not available (${esc(e.message)}) &mdash; details are kept for the last 30 days</div>`;
-    return;
+    try{diff=await getJSON("diff-"+d+".json");}
+    catch(e2){
+      $("#tex-table").innerHTML=`<div class="msg">diff detail not available (${esc(e2.message)})</div>`;
+      return;
+    }
   }
   const c=diff.counts||{};
   $("#tex-summary").innerHTML=`<div class="mini-cards">`+
@@ -628,19 +707,20 @@ async function loadDiffDay(d){
     `<div class="card"><span>rows changed</span><b>${fmt(c.changed)}</b></div>`+
     `<div class="card"><span>removed</span><b>-${fmt(c.removed)}</b></div>`+
     `</div>`;
-  const nl=(diff.new||[]).slice(0,25),cl=(diff.changed||[]).slice(0,25),rl=(diff.removed||[]).slice(0,25);
+  const nl=(diff.top_new||diff.new||[]).slice(0,25);
+  const cl=(diff.top_changed||diff.changed||[]).slice(0,25);
+  const rl=(diff.rm||diff.removed||[]).slice(0,25);
+  const has_was=cl.length&&cl[0].downloads!=null;
+  const link=r=>(r.slug?`<a href="https://modrinth.com/project/${encodeURIComponent(r.slug)}" target="_blank" rel="noopener">${esc(r.title||r.slug)}</a>`:esc(r.title||r.id));
   $("#tex-table").innerHTML=
-    (nl.length?`<div class="card" style="margin-bottom:12px"><span>newest projects that day (top by downloads)</span>`+
+    (nl.length?`<div class="card" style="margin-bottom:12px"><span>newest projects (top by downloads)</span>`+
       `<table><thead><tr><th>project</th><th class="num">downloads</th><th class="num">followers</th></tr></thead><tbody>`+
-      nl.map(r=>`<tr><td class="title-cell">`+
-        (r.slug?`<a href="https://modrinth.com/project/${encodeURIComponent(r.slug)}" target="_blank" rel="noopener">${esc(r.title||r.slug)}</a>`:esc(r.title||r.id))+
-        `</td><td class="num">${fmt(r.downloads)}</td><td class="num">${fmt(r.followers)}</td></tr>`).join("")+
+      nl.map(r=>`<tr><td class="title-cell">${link(r)}</td><td class="num">${fmt(r.downloads)}</td><td class="num">${fmt(r.followers)}</td></tr>`).join("")+
       `</tbody></table></div>`:"")+
-    (cl.length?`<div class="card" style="margin-bottom:12px"><span>biggest download gains that day</span>`+
-      `<table><thead><tr><th>project</th><th class="num">gained</th><th class="num">was</th><th class="num">now</th></tr></thead><tbody>`+
-      cl.map(r=>`<tr><td class="title-cell">`+
-        (r.slug?`<a href="https://modrinth.com/project/${encodeURIComponent(r.slug)}" target="_blank" rel="noopener">${esc(r.title||r.slug)}</a>`:esc(r.title||r.id))+
-        `</td><td class="num"><b>+${fmt(r.gained)}</b></td><td class="num">${fmt(r.old_downloads)}</td><td class="num">${fmt(r.downloads)}</td></tr>`).join("")+
+    (cl.length?`<div class="card" style="margin-bottom:12px"><span>biggest download gains</span>`+
+      `<table><thead><tr><th>project</th><th class="num">gained</th>`+(has_was?`<th class="num">was</th><th class="num">now</th>`:``)+`</tr></thead><tbody>`+
+      cl.map(r=>`<tr><td class="title-cell">${link(r)}</td><td class="num"><b>+${fmt(r.gained)}</b></td>`+
+        (has_was?`<td class="num">${fmt(r.old_downloads)}</td><td class="num">${fmt(r.downloads)}</td>`:``)+`</tr>`).join("")+
       `</tbody></table></div>`:"")+
     (rl.length?`<div class="card"><span>removed project ids (sample)</span>`+
       `<div style="color:var(--mut);font-size:12px;font-family:monospace;word-break:break-all;padding:8px 0">${rl.map(esc).join(", ")}</div></div>`:"");
@@ -661,7 +741,7 @@ async function startTrends(){
   $("#tw").onchange=()=>renderGainers();
   $("#tm-kind").onchange=()=>renderGainers();
   $("#tvel-win").onchange=()=>renderVelocity();
-  texDays=(trendsData.daily_diffs||[]).map(d=>d.date).reverse();
+  texDays=(trendsData.diffs&&trendsData.diffs.length)?trendsData.diffs.slice():(trendsData.daily_diffs||[]).map(d=>d.date).reverse();
   const sel=$("#tex-day");
   sel.innerHTML=texDays.map(d=>`<option value="${d}">${d}</option>`).join("")||`<option value="">no days yet</option>`;
   sel.onchange=()=>loadDiffDay(sel.value);
@@ -681,53 +761,286 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
 });
 
 let t0=null;
-$("#q").addEventListener("input",()=>{clearTimeout(t0);t0=setTimeout(()=>{
-  if(active==="facets")renderFacet();else render(active);
-},120);});
+function applyGlobalFilter(){
+  if(active==="facets")renderFacet();
+  else if(active==="trends")renderOverview();
+  else if(active==="graph"){
+    if($("#g-mod").classList.contains("on"))renderModHost();
+  }
+  else render(active);
+}
+$("#q").addEventListener("input",()=>{clearTimeout(t0);t0=setTimeout(applyGlobalFilter,120);});
 
 const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))loadMore(active);},{rootMargin:"900px"});
 
 let graphStarted=false;
-async function startGraph(){
+
+/* ---------------- download curve (static pre-rendered image) ---------------- */
+let curveStarted=false;
+async function startCurve(){
+  if(curveStarted)return;curveStarted=true;
+  const msg=$("#curve-msg"),cards=$("#curve-cards");
+  let d;
+  try{d=await getJSON("download-curve.json");}
+  catch(e){msg.innerHTML="download curve not generated yet: "+esc(e.message);return;}
+  if(!d.count){msg.innerHTML="no project data yet";return;}
+  msg.textContent="";
+  cards.innerHTML=
+    `<div class="card"><span>projects plotted</span><b>${fmt(d.count)}</b></div>`+
+    `<div class="card"><span>most downloaded</span><b>${fmt(d.max)}</b></div>`+
+    `<div class="card"><span>median downloads</span><b>${fmt(d.median)}</b></div>`+
+    `<div class="card"><span>combined downloads</span><b>${fmt(d.total)}</b></div>`+
+    `<div class="card"><span>average per project</span><b>${fmt(Math.round(d.mean||0))}</b></div>`;
+  const img=$("#curve-img"),svg=$("#curve-svg");
+  svg.src="download-curve.svg?v="+BUILD;
+  svg.onerror=()=>{msg.innerHTML="chart image unavailable";img.hidden=true;};
+  img.hidden=false;
+  const top=$("#curve-top"),body=$("#curve-top-body");
+  if(d.top&&d.top.length){
+    body.innerHTML=d.top.map((t,i)=>
+      `<tr><td class="rank">${i+1}</td><td class="title-cell">`+
+      (t.slug?`<a href="https://modrinth.com/project/${encodeURIComponent(t.slug)}" target="_blank" rel="noopener">${esc(t.title||t.slug)}</a>`:esc(t.title||t.id))+
+      `</td><td class="num">${fmt(t.downloads)}</td></tr>`).join("");
+    top.hidden=false;
+  }
+  $("#count").textContent=fmt(d.count)+" projects on the curve";
+}
+
+/* ---------------- per-mod download trends ---------------- */
+let modStarted=false,modData=null,modSort="downloads",modSel=null,modShown=40;
+async function startModTrends(){
+  if(modStarted)return;modStarted=true;
+  const host=$("#mod-host");
+  let d;
+  try{d=await getGZ("mod-trends.json.gz");}
+  catch(e){
+    try{d=await getJSON("mod-trends.json");}
+    catch(e2){host.innerHTML=`<div class="msg">mod trend history is not available yet (${esc(e2.message)})</div>`;return;}
+  }
+  modData=d;
+  if(!d||!d.mods||!d.mods.length){
+    host.innerHTML=`<div class="msg">no tracked mods yet</div>`;return;
+  }
+  $("#modsort").onchange=()=>{modSort=$("#modsort").value;modSel=null;$("#modsearch").value="";renderModHost();};
+  const inp=$("#modsearch");
+  inp.addEventListener("focus",()=>openModCombo());
+  inp.addEventListener("input",()=>{
+    renderModCombo();showModCombo(true);
+    if(!$("#modlist").contains(window.document.activeElement))modSel=null;
+    renderModHost();
+  });
+  inp.addEventListener("blur",()=>setTimeout(()=>{
+    const a=document.activeElement;
+    if(a&&$("#modcombo").contains(a))return;
+    closeModCombo();
+  },160));
+  inp.addEventListener("keydown",e=>{
+    if(e.key==="ArrowDown"||e.key==="Enter"){
+      const first=$("#modlist").querySelector("div[data-id]");
+      if(first&&!$("#modlist").hidden){first.click();e.preventDefault();}
+    }else if(e.key==="Escape"){closeModCombo();}
+  });
+  $("#modbtn").onclick=()=>{$("#modlist").hidden?openModCombo():closeModCombo();};
+  renderModHost();
+}
+function modRows(){
+  const q=($("#modsearch").value||"").trim().toLowerCase();
+  let rows=(modData?.mods||[]);
+  if(q)rows=rows.filter(m=>
+    String(m.title||"").toLowerCase().includes(q)||String(m.slug||"").toLowerCase().includes(q));
+  const dir=modSort==="name"?1:-1;
+  return rows.slice().sort((a,b)=>{
+    if(modSort==="name")return String(a.title||a.slug||a.id).localeCompare(String(b.title||b.slug||b.id))*dir;
+    return ((a[modSort]||0)-(b[modSort]||0))*dir;
+  });
+}
+function renderModCombo(){
+  const list=$("#modlist"),q=($("#modsearch").value||"").trim().toLowerCase();
+  const rows=modRows().slice(0,60);
+  if(!rows.length){list.innerHTML=`<div class="empty">no mod matches "${esc(q)}"</div>`;return;}
+  list.innerHTML=rows.map(m=>
+    `<div data-id="${esc(m.id)}" class="${m.id===modSel?"sel":""}">`+
+    `<span>${esc(m.title||m.slug||m.id)}</span>`+
+    `<span class="n">${fmt(m.downloads)} &middot; ${m.points<2?"new":((m.gained>=0?"+":"")+fmt(m.gained))}</span></div>`).join("");
+  list.querySelectorAll("div[data-id]").forEach(dd=>dd.onclick=()=>{
+    modSel=dd.dataset.id;
+    const m=(modData.mods||[]).find(x=>x.id===modSel);
+    $("#modsearch").value=m?(m.title||m.slug||m.id):"";
+    showModCombo(false);
+    renderModHost();
+  });
+}
+function showModCombo(open){$("#modlist").hidden=!open;}
+function openModCombo(){$("#modsearch").value="";renderModCombo();showModCombo(true);}
+function closeModCombo(){
+  showModCombo(false);
+  const m=(modData?.mods||[]).find(x=>x.id===modSel);
+  if(m)$("#modsearch").value=m.title||m.slug||m.id;
+}
+function trendChart(series){
+  const pts=series.map(p=>p[1]);
+  const labels=series.map(p=>p[0]);
+  if(pts.length<2){
+    return `<div class="msg">first point recorded ${esc(labels[0]||"")} &mdash; the daily trend fills in as snapshots accumulate</div>`;
+  }
+  const W=900,H=230,pad=54;
+  const n=pts.length;
+  const max=Math.max(...pts),min=Math.min(...pts);
+  const padv=Math.max(1,(max-min)*0.15);
+  const lo=Math.max(0,min-padv),hi=max+padv;
+  const x=i=>pad+i*(W-2*pad)/Math.max(n-1,1);
+  const y=v=>H-pad-((v-lo)/((hi-lo)||1))*(H-2*pad);
+  const coords=pts.map((v,i)=>[x(i),y(v)]);
+  const line=coords.map((c,i)=>(i?"L":"M")+c[0].toFixed(1)+" "+c[1].toFixed(1)).join(" ");
+  const area=line+` L${coords[n-1][0].toFixed(1)} ${H-pad} L${coords[0][0].toFixed(1)} ${H-pad} Z`;
+  const grid=[0,1,2,3].map(i=>{
+    const v=lo+(hi-lo)*i/3;
+    const gy=y(v);
+    return `<line x1="${pad}" y1="${gy.toFixed(1)}" x2="${W-pad}" y2="${gy.toFixed(1)}" stroke="#2b2b30"/>`+
+      `<text x="${pad-8}" y="${gy.toFixed(1)}" fill="#8a8a93" font-size="11" text-anchor="end" dominant-baseline="middle">${fmt(Math.round(v))}</text>`;
+  }).join("");
+  const marks=[0,Math.floor((n-1)/2),n-1].filter((v,i,a)=>a.indexOf(v)===i).map(i=>
+    `<circle cx="${coords[i][0].toFixed(1)}" cy="${coords[i][1].toFixed(1)}" r="3.5" fill="#1bd96a"><title>${esc(labels[i])}: ${esc(fmt(pts[i]))}</title></circle>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">`+
+    grid+`<path d="${area}" fill="#1bd96a22"/><path d="${line}" fill="none" stroke="#1bd96a" stroke-width="2" stroke-linejoin="round"/>`+
+    marks+`</svg>`+
+    `<div style="display:flex;justify-content:space-between;color:var(--mut);font-size:11px"><span>${esc(labels[0])}</span><span>${esc(labels[n-1])}</span></div>`;
+}
+function renderModHost(){
+  const host=$("#mod-host"),info=$("#mod-info");
+  if(!modData)return;
+  if(modSel){
+    const m=(modData.mods||[]).find(x=>x.id===modSel);
+    if(!m)modSel=null;
+    else{
+      const gain=m.gained||0;
+      info.textContent=m.points+" point"+(m.points===1?"":"s")+" tracked";
+      host.innerHTML=`<div class="card">
+        <span>${esc(m.title||m.slug||m.id)} &mdash; downloads per day</span>
+        <div class="cards" style="margin:10px 0 4px">
+          <div class="card"><span>total downloads</span><b>${fmt(m.downloads)}</b></div>
+          <div class="card"><span>${gain>=0?"gained":"lost"} over history</span><b style="color:${gain>=0?"var(--acc)":"var(--danger)"}">${gain>=0?"+":"-"}${fmt(Math.abs(gain))}</b></div>
+          <div class="card"><span>average per day</span><b>${fmt(m.per_day)}</b></div>
+        </div>
+        ${trendChart(m.series)}
+      </div>
+      <div style="margin-top:10px"><button id="mod-back">back to all mods</button></div>`;
+      const back=$("#mod-back");
+      if(back)back.onclick=()=>{modSel=null;$("#modsearch").value="";renderModHost();};
+      $("#count").textContent=m.title||m.slug||m.id;
+      return;
+    }
+  }
+  const total=(modData?.mods||[]).length;
+  const rows=modRows();
+  const shown=rows.slice(0,modShown);
+  info.textContent=rows.length===total
+    ? total.toLocaleString("en-US")+" tracked mods"
+    : rows.length.toLocaleString("en-US")+" of "+total.toLocaleString("en-US")+" tracked mods";
+  const maxDl=Math.max(1,...rows.map(m=>m.downloads||0));
+  host.innerHTML=`<table><thead><tr><th class="rank">#</th><th>project</th><th class="num">downloads</th><th class="num">gained</th><th class="num">per day</th><th class="num">points</th></tr></thead><tbody>`+
+    shown.map((m,i)=>`<tr><td class="rank">${i+1}</td><td class="title-cell" data-pick="${esc(m.id)}" style="cursor:pointer">`+
+      (m.icon_url?`<img class="ico" src="${esc(m.icon_url)}" alt="" loading="lazy" width="18" height="18"> `:``)+
+      (m.slug?`<a href="https://modrinth.com/project/${encodeURIComponent(m.slug)}" target="_blank" rel="noopener">${esc(m.title||m.slug)}</a>`:esc(m.title||m.id))+
+      `</td><td class="num"><div class="bar-cell"><i style="width:${Math.max(2,Math.min(100,(m.downloads||0)/maxDl*100)).toFixed(1)}%"></i><span>${fmt(m.downloads)}</span></div></td>`+
+      `<td class="num">${(m.gained||0)>=0?"+":"-"}${fmt(Math.abs(m.gained||0))}</td>`+
+      `<td class="num">${fmt(m.per_day)}</td><td class="num">${m.points}</td></tr>`).join("")+
+    `</tbody></table>`+
+    (rows.length>shown.length?`<div class="msg" id="mod-more" style="cursor:pointer">${shown.length.toLocaleString("en-US")} of ${rows.length.toLocaleString("en-US")} shown &mdash; click or scroll for more</div>`:"");
+  host.querySelectorAll("td[data-pick]").forEach(td=>td.onclick=()=>{
+    modSel=td.dataset.pick;
+    const m=(modData.mods||[]).find(x=>x.id===modSel);
+    if(m)$("#modsearch").value=m.title||m.slug||m.id;
+    renderModHost();
+  });
+  const more=$("#mod-more");
+  if(more){
+    more.onclick=()=>{modShown+=100;renderModHost();};
+    const mo=new IntersectionObserver(es=>{if(es.some(x=>x.isIntersecting)){modShown+=100;mo.disconnect();renderModHost();}},{rootMargin:"300px"});
+    mo.observe(more);
+  }
+  $("#count").textContent=rows.length.toLocaleString("en-US")+" tracked mods";
+}
+
+/* ---------------- node graph ---------------- */
+function startGraph(){
   if(graphStarted)return;graphStarted=true;
-  const svg=$("#gsvg"),msg=$("#graph-msg");
+  document.querySelectorAll("#gviews button").forEach(b=>b.onclick=()=>{
+    document.querySelectorAll("#gviews button").forEach(x=>x.classList.remove("on"));
+    document.querySelectorAll(".gsub").forEach(x=>x.classList.remove("on"));
+    b.classList.add("on");
+    const sub=$("#g-"+b.dataset.g);
+    if(sub)sub.classList.add("on");
+    if(b.dataset.g==="curve")startCurve();
+    if(b.dataset.g==="mod")startModTrends();
+    if(b.dataset.g==="nodes"&&relaxFn)relaxFn();
+  });
+  ["#gn-kind","#gn-projects","#gn-users"].forEach(sel=>{
+    const el=$(sel);
+    if(el)el.onchange=filterGraph;
+  });
+  loadGraph();
+}
+let graphData=null,gNodes=[],gEdges=[],
+    gSel={kind:"all",projects:true,users:true},relaxFn=null,relaxTimer=null;
+async function loadGraph(){
+  const msg=$("#graph-msg");
   let g;
-  try{g=await getJSON("graph.json");}catch(e){msg.textContent="graph unavailable: "+esc(e.message);return;}
-  const W=1000,H=640,NS="http://www.w3.org/2000/svg";
+  try{g=await getJSON("graph.json");}
+  catch(e){msg.innerHTML="graph unavailable: "+esc(e.message);return;}
+  graphData=g;
+  applyFilter();
+}
+function applyFilter(){
+  if(!graphData)return;
+  const kind=gSel.kind;
+  gNodes=graphData.nodes.filter(n=>n.type==="project"?gSel.projects:gSel.users);
+  const keep=new Set(gNodes.map(n=>n.id));
+  gEdges=graphData.edges.filter(e=>
+    (kind==="all"||e.kind===kind)&&keep.has(e.source)&&keep.has(e.target));
+  setupGraph();
+}
+function filterGraph(){
+  gSel={
+    kind:$("#gn-kind").value,
+    projects:$("#gn-projects").checked,
+    users:$("#gn-users").checked
+  };
+  applyFilter();
+}
+function setupGraph(){
+  const svg=$("#gsvg"),msg=$("#graph-msg");
+  if(!graphData)return;
+  const NS="http://www.w3.org/2000/svg";
+  const W=1000,H=640;
   svg.innerHTML="";
-  const root=document.createElementNS(NS,"g");
-  svg.appendChild(root);
   const defs=document.createElementNS(NS,"defs");
-  svg.insertBefore(defs,root);
-  root.setAttribute("transform","translate(0,0) scale(1)");
+  const root=document.createElementNS(NS,"g");
+  svg.appendChild(defs);svg.appendChild(root);
 
-  const nodes=g.nodes.map((n,i)=>({...n,x:Math.cos(i*2.399)*300,y:Math.sin(i*2.399)*300,vx:0,vy:0,r:0,el:null}));
+  const nodes=gNodes.map((n,i)=>({...n,x:Math.cos(i*2.399)*300,y:Math.sin(i*2.399)*300,vx:0,vy:0,r:0}));
   const idx=new Map(nodes.map((n,i)=>[n.id,i]));
-  const edges=g.edges.filter(e=>idx.has(e.source)&&idx.has(e.target))
+  const edges=gEdges.filter(e=>idx.has(e.source)&&idx.has(e.target))
     .map(e=>({s:idx.get(e.source),t:idx.get(e.target),kind:e.kind}));
-
   const col={depends:"#ffb86b",collab:"#ff6b9d",works:"#8a8a93"};
-
   for(const n of nodes){
     n.r=n.type==="project"?Math.max(6,Math.min(17,3.5+Math.sqrt((n.downloads||1)/180000))):5;
   }
-
   const edgeEls=edges.map(e=>{
     const l=document.createElementNS(NS,"line");
-    l.setAttribute("stroke",col[e.kind]);
+    l.setAttribute("stroke",col[e.kind]||"#8a8a93");
     l.setAttribute("stroke-width",e.kind==="collab"?1.1:0.9);
     l.setAttribute("stroke-opacity",e.kind==="works"?0.22:0.55);
     root.appendChild(l);
     return l;
   });
-
   const nodeEls=nodes.map((n,i)=>{
     let el;
     if(n.icon||n.avatar){
       const cp=document.createElementNS(NS,"clipPath");
       cp.setAttribute("id","gc"+i);
       const cc=document.createElementNS(NS,"circle");
-      cc.setAttribute("cx",n.x);cc.setAttribute("cy",n.y);cc.setAttribute("r",n.r-0.5);
+      cc.setAttribute("cx",n.x);cc.setAttribute("cy",n.y);cc.setAttribute("r",Math.max(n.r-0.5,1));
       cp.appendChild(cc);defs.appendChild(cp);
       const im=document.createElementNS(NS,"image");
       im.setAttribute("href",n.icon||n.avatar);
@@ -776,7 +1089,6 @@ async function startGraph(){
   function view(){
     root.setAttribute("transform","translate("+pan.x.toFixed(1)+","+pan.y.toFixed(1)+") scale("+k.toFixed(3)+")");
   }
-
   function tick(){
     const n=nodes.length;
     for(let i=0;i<n;i++){
@@ -789,7 +1101,7 @@ async function startGraph(){
         const d=Math.sqrt(d2);
         const min=a.r+b.r+3;
         let f=(2600/d2);
-        if(d<min)f+= (min-d)*0.55;
+        if(d<min)f+=(min-d)*0.55;
         const fx=dx/d*f,fy=dy/d*f;
         a.vx-=fx;a.vy-=fy;b.vx+=fx;b.vy+=fy;
       }
@@ -823,6 +1135,7 @@ async function startGraph(){
       if(n.x<minx)minx=n.x;if(n.x>maxx)maxx=n.x;
       if(n.y<miny)miny=n.y;if(n.y>maxy)maxy=n.y;
     }
+    if(minx>maxx)return;
     const pad=60;
     minx-=pad;maxx+=pad;miny-=pad;maxy+=pad;
     k=Math.max(0.1,Math.min(2,Math.min(W/(maxx-minx),H/(maxy-miny))));
@@ -832,30 +1145,36 @@ async function startGraph(){
   }
   fit();
 
-  svg.addEventListener("wheel",e=>{e.preventDefault();
-    k=Math.max(0.12,Math.min(4,k*(e.deltaY<0?1.12:0.89)));view();},{passive:false});
+  svg.onwheel=e=>{e.preventDefault();
+    k=Math.max(0.12,Math.min(4,k*(e.deltaY<0?1.12:0.89)));view();};
   let drag=false,last=null;
-  svg.addEventListener("pointerdown",e=>{drag=true;last=[e.clientX,e.clientY];svg.setPointerCapture(e.pointerId);});
-  svg.addEventListener("pointermove",e=>{
+  svg.onpointerdown=e=>{drag=true;last=[e.clientX,e.clientY];svg.setPointerCapture(e.pointerId);};
+  svg.onpointermove=e=>{
     if(!drag)return;
     const r=svg.getBoundingClientRect();
     pan.x+=(e.clientX-last[0])*W/r.width;
     pan.y+=(e.clientY-last[1])*H/r.height;
     last=[e.clientX,e.clientY];view();
-  });
+  };
   const stop=()=>{drag=false;};
-  svg.addEventListener("pointerup",stop);
-  svg.addEventListener("pointercancel",stop);
-  const relaxN=nodes.length>1200?6:nodes.length>600?12:25;
-  const relax=()=>{for(let i=0;i<relaxN;i++)tick();paint();};
-  const relaxer=setInterval(relax,900);
+  svg.onpointerup=stop;svg.onpointercancel=stop;
 
-  msg.textContent=nodes.length+" nodes \· "+edges.length+" connections ("
-    +edges.filter(e=>e.kind==="collab").length+" developer pairs, "
-    +edges.filter(e=>e.kind==="works").length+" roles, "
-    +edges.filter(e=>e.kind==="depends").length+" dependencies)"
-    +" \· drag to pan, scroll to zoom";
-  $("#graphbox").dataset.ready="1";
+  relaxFn=()=>{
+    if(document.hidden||!$("#g-nodes").classList.contains("on"))return;
+    const rn=nodes.length>1200?6:nodes.length>600?12:25;
+    for(let i=0;i<rn;i++)tick();
+    paint();
+  };
+  if(relaxTimer)clearInterval(relaxTimer);
+  relaxTimer=setInterval(()=>{if(relaxFn)relaxFn();},900);
+
+  msg.innerHTML=nodes.length.toLocaleString("en-US")+" nodes &middot; "+edges.length.toLocaleString("en-US")+" connections ("
+    +edges.filter(e=>e.kind==="collab").length.toLocaleString("en-US")+" developer pairs, "
+    +edges.filter(e=>e.kind==="works").length.toLocaleString("en-US")+" roles, "
+    +edges.filter(e=>e.kind==="depends").length.toLocaleString("en-US")+" dependencies)"
+    +" &middot; drag to pan, scroll to zoom";
+  $("#gn-info").textContent=nodes.length.toLocaleString("en-US")+" nodes, "
+    +edges.length.toLocaleString("en-US")+" connections";
 }
 
 window.addEventListener("DOMContentLoaded",async()=>{
