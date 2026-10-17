@@ -1163,6 +1163,7 @@ def emit_analytics(index, cur):
                   "top_changed": top_changed, "top_new": top_new,
                   "totals": part.get("totals", {})})
     hours = read_hours()
+    gran = "day"
     if hours:
         hseries = []
         for idx, h in enumerate(hours):
@@ -1178,7 +1179,9 @@ def emit_analytics(index, cur):
                 "dl_delta": dl - pv, "proj_delta": (h.get("projects", 0) or 0) - pr,
                 "net_new": (h.get("new", 0) or 0) - (h.get("removed", 0) or 0),
             })
-        series = hseries
+        if len(hseries) >= max(2, len(series)):
+            series = hseries
+            gran = "hour"
     keys = [re.sub(r"\.json(\.gz)?$", "", p.name[len("diff-"):])
             for p in PUB.glob("diff-*") if p.name.endswith((".json", ".json.gz"))]
     keys = sorted(set(keys), reverse=True)
@@ -1186,7 +1189,7 @@ def emit_analytics(index, cur):
         PUB / "analytics.json",
         json.dumps({
             "updated": int(time.time()),
-            "granularity": "hour" if hours else "day",
+            "granularity": gran,
             "series": series,
             "daily_diffs": daily_diffs,
             "diffs": keys,

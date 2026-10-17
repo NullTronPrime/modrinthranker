@@ -205,7 +205,6 @@ footer a{color:var(--mut);text-decoration:underline}
   <nav class="subnav" id="gviews">
     <button data-g="nodes" class="on">node graph</button>
     <button data-g="curve">download curve</button>
-    <button data-g="mod">mod trends</button>
   </nav>
 
   <div id="g-nodes" class="gsub on">
@@ -242,24 +241,6 @@ footer a{color:var(--mut);text-decoration:underline}
       <span>most downloaded projects</span>
       <table style="margin-top:8px"><thead><tr><th class="rank">#</th><th>project</th><th class="num">downloads</th></tr></thead><tbody id="curve-top-body"></tbody></table>
     </div>
-  </div>
-
-  <div id="g-mod" class="gsub">
-    <div class="facetbar">
-      <div class="combo" id="modcombo">
-        <input type="text" id="modsearch" placeholder="search a mod to see its daily downloads&hellip;" autocomplete="off" spellcheck="false">
-        <button type="button" id="modbtn" aria-label="show mods">&#9662;</button>
-        <div class="combo-list" id="modlist" hidden></div>
-      </div>
-      <select id="modsort">
-        <option value="downloads">sort: total downloads</option>
-        <option value="per_day">sort: downloads per day</option>
-        <option value="gained">sort: total gained</option>
-        <option value="name">sort: name A-Z</option>
-      </select>
-      <span class="count" id="mod-info"></span>
-    </div>
-    <div id="mod-host"></div>
   </div>
 </div>
 
@@ -764,10 +745,7 @@ let t0=null;
 function applyGlobalFilter(){
   if(active==="facets")renderFacet();
   else if(active==="trends")renderOverview();
-  else if(active==="graph"){
-    if($("#g-mod").classList.contains("on"))renderModHost();
-  }
-  else render(active);
+  else if(active!=="graph")render(active);
 }
 $("#q").addEventListener("input",()=>{clearTimeout(t0);t0=setTimeout(applyGlobalFilter,120);});
 
@@ -806,162 +784,6 @@ async function startCurve(){
   $("#count").textContent=fmt(d.count)+" projects on the curve";
 }
 
-/* ---------------- per-mod download trends ---------------- */
-let modStarted=false,modData=null,modSort="downloads",modSel=null,modShown=40;
-async function startModTrends(){
-  if(modStarted)return;modStarted=true;
-  const host=$("#mod-host");
-  let d;
-  try{d=await getGZ("mod-trends.json.gz");}
-  catch(e){
-    try{d=await getJSON("mod-trends.json");}
-    catch(e2){host.innerHTML=`<div class="msg">mod trend history is not available yet (${esc(e2.message)})</div>`;return;}
-  }
-  modData=d;
-  if(!d||!d.mods||!d.mods.length){
-    host.innerHTML=`<div class="msg">no tracked mods yet</div>`;return;
-  }
-  $("#modsort").onchange=()=>{modSort=$("#modsort").value;modSel=null;$("#modsearch").value="";renderModHost();};
-  const inp=$("#modsearch");
-  inp.addEventListener("focus",()=>openModCombo());
-  inp.addEventListener("input",()=>{
-    renderModCombo();showModCombo(true);
-    if(!$("#modlist").contains(window.document.activeElement))modSel=null;
-    renderModHost();
-  });
-  inp.addEventListener("blur",()=>setTimeout(()=>{
-    const a=document.activeElement;
-    if(a&&$("#modcombo").contains(a))return;
-    closeModCombo();
-  },160));
-  inp.addEventListener("keydown",e=>{
-    if(e.key==="ArrowDown"||e.key==="Enter"){
-      const first=$("#modlist").querySelector("div[data-id]");
-      if(first&&!$("#modlist").hidden){first.click();e.preventDefault();}
-    }else if(e.key==="Escape"){closeModCombo();}
-  });
-  $("#modbtn").onclick=()=>{$("#modlist").hidden?openModCombo():closeModCombo();};
-  renderModHost();
-}
-function modRows(){
-  const q=($("#modsearch").value||"").trim().toLowerCase();
-  let rows=(modData?.mods||[]);
-  if(q)rows=rows.filter(m=>
-    String(m.title||"").toLowerCase().includes(q)||String(m.slug||"").toLowerCase().includes(q));
-  const dir=modSort==="name"?1:-1;
-  return rows.slice().sort((a,b)=>{
-    if(modSort==="name")return String(a.title||a.slug||a.id).localeCompare(String(b.title||b.slug||b.id))*dir;
-    return ((a[modSort]||0)-(b[modSort]||0))*dir;
-  });
-}
-function renderModCombo(){
-  const list=$("#modlist"),q=($("#modsearch").value||"").trim().toLowerCase();
-  const rows=modRows().slice(0,60);
-  if(!rows.length){list.innerHTML=`<div class="empty">no mod matches "${esc(q)}"</div>`;return;}
-  list.innerHTML=rows.map(m=>
-    `<div data-id="${esc(m.id)}" class="${m.id===modSel?"sel":""}">`+
-    `<span>${esc(m.title||m.slug||m.id)}</span>`+
-    `<span class="n">${fmt(m.downloads)} &middot; ${m.points<2?"new":((m.gained>=0?"+":"")+fmt(m.gained))}</span></div>`).join("");
-  list.querySelectorAll("div[data-id]").forEach(dd=>dd.onclick=()=>{
-    modSel=dd.dataset.id;
-    const m=(modData.mods||[]).find(x=>x.id===modSel);
-    $("#modsearch").value=m?(m.title||m.slug||m.id):"";
-    showModCombo(false);
-    renderModHost();
-  });
-}
-function showModCombo(open){$("#modlist").hidden=!open;}
-function openModCombo(){$("#modsearch").value="";renderModCombo();showModCombo(true);}
-function closeModCombo(){
-  showModCombo(false);
-  const m=(modData?.mods||[]).find(x=>x.id===modSel);
-  if(m)$("#modsearch").value=m.title||m.slug||m.id;
-}
-function trendChart(series){
-  const pts=series.map(p=>p[1]);
-  const labels=series.map(p=>p[0]);
-  if(pts.length<2){
-    return `<div class="msg">first point recorded ${esc(labels[0]||"")} &mdash; the daily trend fills in as snapshots accumulate</div>`;
-  }
-  const W=900,H=230,pad=54;
-  const n=pts.length;
-  const max=Math.max(...pts),min=Math.min(...pts);
-  const padv=Math.max(1,(max-min)*0.15);
-  const lo=Math.max(0,min-padv),hi=max+padv;
-  const x=i=>pad+i*(W-2*pad)/Math.max(n-1,1);
-  const y=v=>H-pad-((v-lo)/((hi-lo)||1))*(H-2*pad);
-  const coords=pts.map((v,i)=>[x(i),y(v)]);
-  const line=coords.map((c,i)=>(i?"L":"M")+c[0].toFixed(1)+" "+c[1].toFixed(1)).join(" ");
-  const area=line+` L${coords[n-1][0].toFixed(1)} ${H-pad} L${coords[0][0].toFixed(1)} ${H-pad} Z`;
-  const grid=[0,1,2,3].map(i=>{
-    const v=lo+(hi-lo)*i/3;
-    const gy=y(v);
-    return `<line x1="${pad}" y1="${gy.toFixed(1)}" x2="${W-pad}" y2="${gy.toFixed(1)}" stroke="#2b2b30"/>`+
-      `<text x="${pad-8}" y="${gy.toFixed(1)}" fill="#8a8a93" font-size="11" text-anchor="end" dominant-baseline="middle">${fmt(Math.round(v))}</text>`;
-  }).join("");
-  const marks=[0,Math.floor((n-1)/2),n-1].filter((v,i,a)=>a.indexOf(v)===i).map(i=>
-    `<circle cx="${coords[i][0].toFixed(1)}" cy="${coords[i][1].toFixed(1)}" r="3.5" fill="#1bd96a"><title>${esc(labels[i])}: ${esc(fmt(pts[i]))}</title></circle>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">`+
-    grid+`<path d="${area}" fill="#1bd96a22"/><path d="${line}" fill="none" stroke="#1bd96a" stroke-width="2" stroke-linejoin="round"/>`+
-    marks+`</svg>`+
-    `<div style="display:flex;justify-content:space-between;color:var(--mut);font-size:11px"><span>${esc(labels[0])}</span><span>${esc(labels[n-1])}</span></div>`;
-}
-function renderModHost(){
-  const host=$("#mod-host"),info=$("#mod-info");
-  if(!modData)return;
-  if(modSel){
-    const m=(modData.mods||[]).find(x=>x.id===modSel);
-    if(!m)modSel=null;
-    else{
-      const gain=m.gained||0;
-      info.textContent=m.points+" point"+(m.points===1?"":"s")+" tracked";
-      host.innerHTML=`<div class="card">
-        <span>${esc(m.title||m.slug||m.id)} &mdash; downloads per day</span>
-        <div class="cards" style="margin:10px 0 4px">
-          <div class="card"><span>total downloads</span><b>${fmt(m.downloads)}</b></div>
-          <div class="card"><span>${gain>=0?"gained":"lost"} over history</span><b style="color:${gain>=0?"var(--acc)":"var(--danger)"}">${gain>=0?"+":"-"}${fmt(Math.abs(gain))}</b></div>
-          <div class="card"><span>average per day</span><b>${fmt(m.per_day)}</b></div>
-        </div>
-        ${trendChart(m.series)}
-      </div>
-      <div style="margin-top:10px"><button id="mod-back">back to all mods</button></div>`;
-      const back=$("#mod-back");
-      if(back)back.onclick=()=>{modSel=null;$("#modsearch").value="";renderModHost();};
-      $("#count").textContent=m.title||m.slug||m.id;
-      return;
-    }
-  }
-  const total=(modData?.mods||[]).length;
-  const rows=modRows();
-  const shown=rows.slice(0,modShown);
-  info.textContent=rows.length===total
-    ? total.toLocaleString("en-US")+" tracked mods"
-    : rows.length.toLocaleString("en-US")+" of "+total.toLocaleString("en-US")+" tracked mods";
-  const maxDl=Math.max(1,...rows.map(m=>m.downloads||0));
-  host.innerHTML=`<table><thead><tr><th class="rank">#</th><th>project</th><th class="num">downloads</th><th class="num">gained</th><th class="num">per day</th><th class="num">points</th></tr></thead><tbody>`+
-    shown.map((m,i)=>`<tr><td class="rank">${i+1}</td><td class="title-cell" data-pick="${esc(m.id)}" style="cursor:pointer">`+
-      (m.icon_url?`<img class="ico" src="${esc(m.icon_url)}" alt="" loading="lazy" width="18" height="18"> `:``)+
-      (m.slug?`<a href="https://modrinth.com/project/${encodeURIComponent(m.slug)}" target="_blank" rel="noopener">${esc(m.title||m.slug)}</a>`:esc(m.title||m.id))+
-      `</td><td class="num"><div class="bar-cell"><i style="width:${Math.max(2,Math.min(100,(m.downloads||0)/maxDl*100)).toFixed(1)}%"></i><span>${fmt(m.downloads)}</span></div></td>`+
-      `<td class="num">${(m.gained||0)>=0?"+":"-"}${fmt(Math.abs(m.gained||0))}</td>`+
-      `<td class="num">${fmt(m.per_day)}</td><td class="num">${m.points}</td></tr>`).join("")+
-    `</tbody></table>`+
-    (rows.length>shown.length?`<div class="msg" id="mod-more" style="cursor:pointer">${shown.length.toLocaleString("en-US")} of ${rows.length.toLocaleString("en-US")} shown &mdash; click or scroll for more</div>`:"");
-  host.querySelectorAll("td[data-pick]").forEach(td=>td.onclick=()=>{
-    modSel=td.dataset.pick;
-    const m=(modData.mods||[]).find(x=>x.id===modSel);
-    if(m)$("#modsearch").value=m.title||m.slug||m.id;
-    renderModHost();
-  });
-  const more=$("#mod-more");
-  if(more){
-    more.onclick=()=>{modShown+=100;renderModHost();};
-    const mo=new IntersectionObserver(es=>{if(es.some(x=>x.isIntersecting)){modShown+=100;mo.disconnect();renderModHost();}},{rootMargin:"300px"});
-    mo.observe(more);
-  }
-  $("#count").textContent=rows.length.toLocaleString("en-US")+" tracked mods";
-}
-
 /* ---------------- node graph ---------------- */
 function startGraph(){
   if(graphStarted)return;graphStarted=true;
@@ -972,7 +794,6 @@ function startGraph(){
     const sub=$("#g-"+b.dataset.g);
     if(sub)sub.classList.add("on");
     if(b.dataset.g==="curve")startCurve();
-    if(b.dataset.g==="mod")startModTrends();
     if(b.dataset.g==="nodes"&&relaxFn)relaxFn();
   });
   ["#gn-kind","#gn-projects","#gn-users"].forEach(sel=>{
