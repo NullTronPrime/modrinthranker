@@ -619,7 +619,7 @@ function renderOverview(){
     chartCard("total downloads",spark(s.map(d=>d.downloads||0),labels,"#1bd96a"),fmt(last.downloads))+
     chartCard("projects tracked",spark(s.map(d=>d.projects||0),labels,"#6e6aff"),fmt(last.projects))+
     chartCard("download gain "+per,bars(s.slice(1).map(d=>d.dl_delta||0),labels.slice(1),"#1bd96a"),"+"+fmt(sum("dl_delta"))+" total")+
-    chartCard("projects added "+per,bars(s.slice(1).map(d=>d.new||0),labels.slice(1),"#6e6aff"),"+"+fmt(sum("new"))+" in history")+
+    chartCard("projects added "+per,bars(s.slice(1).map(d=>d.proj_delta||0),labels.slice(1),"#6e6aff"),"+"+fmt(sum("proj_delta"))+" in history")+
     `</div>`;
   const sc=trendsData.status_counts||{};
   const scKeys=Object.keys(sc).sort((a,b)=>sc[b]-sc[a]);
