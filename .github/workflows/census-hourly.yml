@@ -25,11 +25,10 @@ jobs:
           key: census-db-${{ github.run_id }}
           restore-keys: census-db-
       - name: decompress
-        if: steps.db.outputs.cache-hit != 'true'
         run: |
           mkdir -p data
           if [ -f data/ranks.sqlite.gz ]; then
-            gunzip -k data/ranks.sqlite.gz
+            gunzip -kf data/ranks.sqlite.gz
           else
             echo "no cached database, starting cold"
           fi
