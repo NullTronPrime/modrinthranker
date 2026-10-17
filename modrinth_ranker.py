@@ -226,13 +226,14 @@ def upsert_project(c, p, checked):
 
 
 def ingest_ids(client, c, ids, checked):
-    if not ids:
-        return
-    projs = client.get("/projects?ids=" + urllib.parse.quote(json.dumps(ids)))
-    if not projs:
-        return
-    for p in projs:
-        upsert_project(c, p, checked)
+    ids = [i for i in ids if i]
+    for i in range(0, len(ids), BULK_LIMIT):
+        chunk = ids[i : i + BULK_LIMIT]
+        projs = client.get("/projects?ids=" + urllib.parse.quote(json.dumps(chunk)))
+        if not projs:
+            continue
+        for p in projs:
+            upsert_project(c, p, checked)
 
 
 def walk(client, c, index):
