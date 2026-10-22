@@ -418,5 +418,20 @@
   "new": 0,
   "changed": 11356,
   "removed": 0
+ },
+ {
+  "t": 1792632660,
+  "date": "2026-10-22T01",
+  "projects": 163587,
+  "downloads": 20367842942,
+  "followers": 4274572,
+  "versions": 1499189,
+  "status": {
+   "approved": 156898,
+   "archived": 6689
+  },
+  "new": 0,
+  "changed": 11169,
+  "removed": 0
  }
 ]
