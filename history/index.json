@@ -201,14 +201,13 @@
    "new": 0,
    "changed": 48053,
    "removed": 0,
-   "projects": 164052,
-   "downloads": 20577052912,
-   "followers": 4286949,
-   "versions": 1506877,
+   "projects": 164400,
+   "downloads": 20600770613,
+   "followers": 4290824,
+   "versions": 1509403,
    "status": {
-    "approved": 157347,
-    "archived": 6704,
-    "unlisted": 1
+    "approved": 157667,
+    "archived": 6733
    }
   }
  ],
