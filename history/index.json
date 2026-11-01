@@ -299,14 +299,13 @@
    "new": 376,
    "changed": 98619,
    "removed": 34,
-   "projects": 165997,
-   "downloads": 20906283068,
-   "followers": 4319561,
-   "versions": 1528361,
+   "projects": 166181,
+   "downloads": 20918139929,
+   "followers": 4321560,
+   "versions": 1530536,
    "status": {
-    "approved": 159168,
-    "archived": 6828,
-    "unlisted": 1
+    "approved": 159336,
+    "archived": 6845
    }
   }
  ],
