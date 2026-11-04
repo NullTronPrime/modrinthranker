@@ -1,15 +1,15 @@
 {
- "generated": 1793801719,
+ "generated": 1793802402,
  "projects": 166563,
- "authors": 71859,
+ "authors": 71860,
  "users": 71859,
- "teams": 158186,
+ "teams": 158197,
  "deps": 27361,
  "modrinth_statistics": {
   "projects": 166565,
-  "versions": 1539861,
-  "authors": 71863,
-  "files": 1669680
+  "versions": 1540063,
+  "authors": 71864,
+  "files": 1669902
  },
  "facets": 5826,
  "facet_boards": 5826,
@@ -17,9 +17,9 @@
  "depended": 4952,
  "download_curve": {
   "count": 166563,
-  "max": 296201656,
+  "max": 296226067,
   "median": 613,
-  "total": 21001166121
+  "total": 21002497126
  },
  "mod_trends": {
   "count": 2048
