@@ -411,14 +411,13 @@
    "new": 544,
    "changed": 103944,
    "removed": 49,
-   "projects": 167652,
-   "downloads": 20343850125,
-   "followers": 4353374,
-   "versions": 1553225,
+   "projects": 167792,
+   "downloads": 20352307637,
+   "followers": 4356011,
+   "versions": 1555240,
    "status": {
-    "approved": 160707,
-    "archived": 6944,
-    "unlisted": 1
+    "approved": 160836,
+    "archived": 6956
    }
   }
  ],
