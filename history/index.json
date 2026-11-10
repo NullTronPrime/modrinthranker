@@ -419,8 +419,22 @@
     "approved": 160836,
     "archived": 6956
    }
+  },
+  {
+   "date": "2026-11-10",
+   "new": 173,
+   "changed": 93821,
+   "removed": 33,
+   "projects": 167792,
+   "downloads": 20369742355,
+   "followers": 4358159,
+   "versions": 1555824,
+   "status": {
+    "approved": 160835,
+    "archived": 6957
+   }
   }
  ],
  "last_full": "2026-11-08",
- "census": "2026-11-09"
+ "census": "2026-11-10"
 }
