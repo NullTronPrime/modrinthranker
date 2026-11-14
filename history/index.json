@@ -481,15 +481,13 @@
    "new": 240,
    "changed": 89816,
    "removed": 27,
-   "projects": 169052,
-   "downloads": 20478670050,
-   "followers": 4373611,
-   "versions": 1570362,
+   "projects": 169266,
+   "downloads": 20485572614,
+   "followers": 4375266,
+   "versions": 1572472,
    "status": {
-    "approved": 162039,
-    "archived": 7011,
-    "withheld": 1,
-    "unlisted": 1
+    "approved": 162251,
+    "archived": 7015
    }
   }
  ],
