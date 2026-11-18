@@ -537,14 +537,13 @@
    "new": 164,
    "changed": 92323,
    "removed": 19,
-   "projects": 169427,
-   "downloads": 20590076915,
-   "followers": 4387191,
-   "versions": 1579945,
+   "projects": 169522,
+   "downloads": 20601915957,
+   "followers": 4389735,
+   "versions": 1581818,
    "status": {
-    "approved": 162511,
-    "archived": 6914,
-    "withheld": 2
+    "approved": 162603,
+    "archived": 6919
    }
   }
  ],
