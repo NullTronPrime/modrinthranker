@@ -565,14 +565,12 @@
    "new": 284,
    "changed": 89726,
    "removed": 38,
-   "projects": 169768,
-   "downloads": 20646773931,
-   "followers": 4395552,
-   "versions": 1584986,
+   "projects": 170060,
+   "downloads": 20653101431,
+   "followers": 4396798,
+   "versions": 1585985,
    "status": {
-    "approved": 162850,
-    "archived": 6917,
-    "unlisted": 1
+    "approved": 170060
    }
   }
  ],
