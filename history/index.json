@@ -598,8 +598,22 @@
    "status": {
     "approved": 170371
    }
+  },
+  {
+   "date": "2026-11-23",
+   "new": 201,
+   "changed": 95384,
+   "removed": 55,
+   "projects": 170371,
+   "downloads": 20743346056,
+   "followers": 4406613,
+   "versions": 1592450,
+   "status": {
+    "approved": 170370,
+    "unlisted": 1
+   }
   }
  ],
  "last_full": "2026-11-22",
- "census": "2026-11-22"
+ "census": "2026-11-23"
 }
