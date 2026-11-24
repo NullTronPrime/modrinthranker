@@ -618,14 +618,12 @@
    "new": 198,
    "changed": 94542,
    "removed": 67,
-   "projects": 170502,
-   "downloads": 20766125215,
-   "followers": 4409814,
-   "versions": 1595342,
+   "projects": 170532,
+   "downloads": 20777387100,
+   "followers": 4410320,
+   "versions": 1595092,
    "status": {
-    "approved": 170493,
-    "unlisted": 2,
-    "withheld": 7
+    "approved": 170532
    }
   }
  ],
