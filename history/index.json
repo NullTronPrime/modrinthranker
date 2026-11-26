@@ -638,8 +638,21 @@
    "status": {
     "approved": 170669
    }
+  },
+  {
+   "date": "2026-11-26",
+   "new": 189,
+   "changed": 94582,
+   "removed": 52,
+   "projects": 170669,
+   "downloads": 20811336049,
+   "followers": 4414197,
+   "versions": 1597314,
+   "status": {
+    "approved": 170669
+   }
   }
  ],
  "last_full": "2026-11-22",
- "census": "2026-11-25"
+ "census": "2026-11-26"
 }
